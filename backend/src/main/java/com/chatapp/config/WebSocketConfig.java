@@ -10,17 +10,19 @@ import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
 
+import java.util.Arrays;
+
 /**
  * Registers the WebSocket signaling endpoint.
  *
- * Clients connect to: ws(s)://<host>:<port>/signal
+ * Clients connect to: wss://<host>/signal
  * This endpoint is used ONLY for WebRTC signaling (SDP/ICE exchange).
  * After the WebRTC connection is established, all data flows peer-to-peer.
  *
  * Allowed origins are configured via the {@code app.cors.allowed-origins} property,
  * which reads the {@code ALLOWED_ORIGINS} environment variable at runtime.
  *   Development default : * (all origins)
- *   Production          : set ALLOWED_ORIGINS=https://your-app.web.app
+ *   Production          : set ALLOWED_ORIGINS=https://chat-p2p-x.web.app
  */
 @Configuration
 @EnableWebSocket
@@ -30,21 +32,23 @@ public class WebSocketConfig implements WebSocketConfigurer {
     private SignalingHandler signalingHandler;
 
     /**
-     * Comma-separated list of allowed WebSocket origins.
-     * Spring automatically splits the string on commas when injecting into String[].
-     * Examples:
-     *   "*"                                (development)
-     *   "https://your-app.web.app"         (single Firebase origin)
-     *   "https://your-app.web.app,https://custom.domain.com"  (multiple)
+     * Raw comma-separated allowed origins string from config.
+     * Injected as a plain String and split manually to avoid SpEL type-conversion
+     * issues (SpEL projection returns List which may not coerce to String[]).
      */
-    @Value("#{'${app.cors.allowed-origins:*}'.split(',').![trim()]}")
-    private String[] allowedOrigins;
+    @Value("${app.cors.allowed-origins:*}")
+    private String allowedOriginsRaw;
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
+        String[] origins = Arrays.stream(allowedOriginsRaw.split(","))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .toArray(String[]::new);
+
         registry
             .addHandler(signalingHandler, "/signal")
-            .setAllowedOriginPatterns(allowedOrigins);
+            .setAllowedOriginPatterns(origins);
     }
 
     /**
