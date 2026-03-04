@@ -1,87 +1,126 @@
 import { useEffect, useRef, useCallback } from "react";
 
+// Reconnect backoff: 1s → 2s → 4s → 8s → 16s → 30s (capped)
+const BACKOFF_BASE_MS  = 1_000;
+const BACKOFF_MAX_MS   = 30_000;
+const BACKOFF_FACTOR   = 2;
+
 /**
  * useSignaling
  *
  * Manages the WebSocket connection to the Spring Boot signaling server.
+ * Automatically reconnects with exponential backoff on failure or disconnect
+ * (handles Render free-tier cold starts transparently).
  * Used ONLY for WebRTC negotiation (SDP offers/answers + ICE candidates).
  * All actual chat/media data travels directly peer-to-peer via WebRTC.
  *
- * @param {string} signalingUrl  - WebSocket URL, e.g. "wss://localhost:8080/signal"
+ * @param {string} signalingUrl  - WebSocket URL, e.g. "wss://host/signal"
  * @param {function} onMessage   - Callback invoked with a parsed SignalMessage object
  * @returns {{ joinRoom, sendSignal, disconnect }}
  */
 export function useSignaling(signalingUrl, onMessage) {
-  const wsRef = useRef(null);          // WebSocket instance
-  const onMessageRef = useRef(onMessage); // Keep latest callback without re-subscribing
+  const wsRef          = useRef(null);       // active WebSocket instance
+  const onMessageRef   = useRef(onMessage);  // latest callback (avoid stale closure)
+  const retryDelay     = useRef(BACKOFF_BASE_MS);
+  const retryTimer     = useRef(null);
+  const destroyed      = useRef(false);      // true after explicit disconnect / unmount
+  const pendingJoin    = useRef(null);       // room to re-join after reconnect
 
-  // Always keep the latest callback in ref (avoid stale closure)
+  // Always keep the latest callback reference
   useEffect(() => {
     onMessageRef.current = onMessage;
   }, [onMessage]);
 
-  // Open WebSocket connection when URL is provided
-  useEffect(() => {
-    if (!signalingUrl) return;
+  // ── Connection factory (called on first connect + every reconnect) ─────────
+  const connect = useCallback(() => {
+    if (destroyed.current || !signalingUrl) return;
 
+    console.log(`[Signaling] Connecting to ${signalingUrl} …`);
     const ws = new WebSocket(signalingUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log("[Signaling] Connected to signaling server:", signalingUrl);
+      console.log("[Signaling] Connected.");
+      retryDelay.current = BACKOFF_BASE_MS; // reset backoff on success
+
+      // Re-join the room if we were already in one before the reconnect
+      if (pendingJoin.current) {
+        console.log("[Signaling] Re-joining room after reconnect.");
+        ws.send(JSON.stringify({ type: "join", roomId: pendingJoin.current }));
+      }
     };
 
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        console.log("[Signaling] Received:", msg.type, msg);
+        console.log("[Signaling] ←", msg.type, msg);
         onMessageRef.current?.(msg);
       } catch (err) {
         console.error("[Signaling] Failed to parse message:", err);
       }
     };
 
-    ws.onerror = (err) => {
-      console.error("[Signaling] WebSocket error:", err);
+    ws.onerror = () => {
+      // onclose always fires after onerror, so reconnect logic lives there
+      console.warn("[Signaling] WebSocket error — will attempt reconnect.");
     };
 
     ws.onclose = (event) => {
-      console.log("[Signaling] Disconnected:", event.code, event.reason);
-    };
+      console.log(`[Signaling] Closed (code=${event.code}).`);
+      if (destroyed.current) return;   // intentional close — do not reconnect
 
-    // Cleanup: close WebSocket on unmount or URL change
-    return () => {
-      ws.close();
+      const delay = retryDelay.current;
+      console.log(`[Signaling] Reconnecting in ${delay / 1000}s …`);
+      retryTimer.current = setTimeout(() => {
+        if (!destroyed.current) connect();
+      }, delay);
+
+      // Increase backoff for next attempt (capped)
+      retryDelay.current = Math.min(delay * BACKOFF_FACTOR, BACKOFF_MAX_MS);
     };
   }, [signalingUrl]);
 
-  /**
-   * Send a message through the signaling server.
-   * @param {Object} message - SignalMessage-shaped object
-   */
+  // ── Bootstrap connection when URL becomes available ────────────────────────
+  useEffect(() => {
+    if (!signalingUrl) return;
+    destroyed.current = false;
+    connect();
+
+    return () => {
+      destroyed.current = true;
+      clearTimeout(retryTimer.current);
+      wsRef.current?.close();
+    };
+  }, [signalingUrl, connect]);
+
+  // ── Public API ─────────────────────────────────────────────────────────────
+
+  /** Send a raw signaling message. */
   const sendSignal = useCallback((message) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(message));
-      console.log("[Signaling] Sent:", message.type, message);
+      console.log("[Signaling] →", message.type, message);
     } else {
-      console.warn("[Signaling] Cannot send — WebSocket not open. State:", ws?.readyState);
+      console.warn("[Signaling] Cannot send — not open. State:", ws?.readyState);
     }
   }, []);
 
   /**
-   * Join a signaling room. Only the (pre-hashed) room ID is sent —
-   * the user's display name is exchanged later over the encrypted DataChannel.
-   * @param {string} hashedRoomId - SHA-256 hash of the room code (computed in App.js)
+   * Join a signaling room. Stores the room ID so it can be re-joined
+   * automatically after a reconnect.
+   * @param {string} hashedRoomId - SHA-256 hash of the room code
    */
   const joinRoom = useCallback((hashedRoomId) => {
+    pendingJoin.current = hashedRoomId;
     sendSignal({ type: "join", roomId: hashedRoomId });
   }, [sendSignal]);
 
-  /**
-   * Manually close the WebSocket connection.
-   */
+  /** Permanently close the connection (no reconnect). */
   const disconnect = useCallback(() => {
+    destroyed.current  = true;
+    pendingJoin.current = null;
+    clearTimeout(retryTimer.current);
     wsRef.current?.close();
   }, []);
 
