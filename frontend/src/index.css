@@ -1,0 +1,183 @@
+/* ── Google Fonts: Space Grotesk + Space Mono ────────────────────────── */
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap");
+
+/* Tailwind base directives */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════
+   NEO BRUTALIST BASE
+   ═══════════════════════════════════════════════════════════════════════ */
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  body {
+    background-color: #FFFDF0;
+    color: #0A0A0A;
+    font-family: "Space Grotesk", system-ui, sans-serif;
+    font-weight: 500;
+    overscroll-behavior: none;
+    -webkit-font-smoothing: antialiased;
+    /* Privacy: prevent casual text-selection screenshots & copy */
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
+    /* Mobile safe-area (notch / home indicator) */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* Allow selection inside text inputs only */
+  input, textarea {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    user-select: text;
+  }
+
+  /* Privacy: prevent dragging images/videos out of the window */
+  img, video {
+    -webkit-user-drag: none;
+    user-drag: none;
+    pointer-events: auto;
+  }
+
+  /* ── Brutal scrollbar ─────────────────────────────────────────────── */
+  ::-webkit-scrollbar        { width: 8px; }
+  ::-webkit-scrollbar-track  { background: #FFFDF0; border-left: 3px solid #0A0A0A; }
+  ::-webkit-scrollbar-thumb  { background: #FFE500; border: 3px solid #0A0A0A; }
+  ::-webkit-scrollbar-thumb:hover { background: #FF2D78; }
+
+  /* ── Focus ring ───────────────────────────────────────────────────── */
+  *:focus-visible {
+    outline: 3px solid #0A0A0A;
+    outline-offset: 2px;
+  }
+
+  h1, h2, h3, h4 {
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   NEO BRUTALIST COMPONENT CLASSES
+   ═══════════════════════════════════════════════════════════════════════ */
+@layer components {
+
+  /* ── Primary button ─────────────────────────────────────────────────
+     Yellow fill, 3px black border, brutal offset shadow.
+     Shifts on hover (shadow shrinks + translate) for tactile feel.    */
+  .btn-primary {
+    @apply bg-brut-yellow text-brut-black font-black uppercase tracking-wider
+           px-6 py-3 border-3 border-brut-black
+           transition-all duration-100 disabled:opacity-40 disabled:cursor-not-allowed
+           select-none;
+    box-shadow: 4px 4px 0px #0A0A0A;
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0px #0A0A0A;
+  }
+  .btn-primary:active:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0px #0A0A0A;
+  }
+
+  /* ── Ghost / secondary button ───────────────────────────────────────*/
+  .btn-ghost {
+    @apply bg-brut-white text-brut-black font-bold uppercase tracking-wide
+           px-5 py-2.5 border-3 border-brut-black
+           transition-all duration-100 select-none;
+    box-shadow: 3px 3px 0px #0A0A0A;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    transform: translate(-1px, -1px);
+    box-shadow: 5px 5px 0px #0A0A0A;
+    background-color: #F0EDDE;
+  }
+  .btn-ghost:active:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: 0px 0px 0px #0A0A0A;
+  }
+
+  /* ── Danger / end-call button ────────────────────────────────────── */
+  .btn-danger {
+    @apply bg-brut-pink text-white font-black uppercase tracking-wider
+           px-6 py-3 border-3 border-brut-black
+           transition-all duration-100 select-none;
+    box-shadow: 4px 4px 0px #0A0A0A;
+  }
+  .btn-danger:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0px #0A0A0A;
+  }
+  .btn-danger:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0px #0A0A0A;
+  }
+
+  /* ── Card ────────────────────────────────────────────────────────── */
+  .card {
+    @apply bg-brut-white border-3 border-brut-black p-7;
+    box-shadow: 6px 6px 0px #0A0A0A;
+  }
+
+  /* ── Input field ─────────────────────────────────────────────────── */
+  .input-field {
+    @apply w-full bg-brut-white text-brut-black placeholder-brut-black/40
+           font-medium border-3 border-brut-black px-4 py-3
+           outline-none transition-all duration-100;
+    box-shadow: 3px 3px 0px #0A0A0A;
+  }
+  .input-field:focus {
+    box-shadow: 5px 5px 0px #0A0A0A;
+    transform: translate(-1px, -1px);
+  }
+
+  /* ── Message bubble — self (yellow) ─────────────────────────────── */
+  .bubble-self {
+    @apply bg-brut-yellow text-brut-black font-medium border-3 border-brut-black
+           px-4 py-2.5 break-words;
+    box-shadow: 3px 3px 0px #0A0A0A;
+    max-width: 85%;
+  }
+
+  /* ── Message bubble — peer (white) ──────────────────────────────── */
+  .bubble-peer {
+    @apply bg-brut-white text-brut-black font-medium border-3 border-brut-black
+           px-4 py-2.5 break-words;
+    box-shadow: 3px 3px 0px #0A0A0A;
+    max-width: 85%;
+  }
+
+  @media (min-width: 640px) {
+    .bubble-self, .bubble-peer { max-width: 72%; }
+  }
+
+  /* ── Status dot ──────────────────────────────────────────────────── */
+  .status-dot {
+    @apply inline-block w-3 h-3 border-2 border-brut-black;
+  }
+
+  /* ── Label (uppercase, bold) ─────────────────────────────────────── */
+  .brut-label {
+    @apply text-xs font-black uppercase tracking-widest text-brut-black/60 mb-1.5 block;
+  }
+
+  /* ── Tag / badge ─────────────────────────────────────────────────── */
+  .brut-badge {
+    @apply text-xs font-black uppercase tracking-wider px-2 py-0.5
+           border-2 border-brut-black bg-brut-yellow;
+    box-shadow: 2px 2px 0px #0A0A0A;
+  }
+
+  /* ── Panel / sidebar section ─────────────────────────────────────── */
+  .brut-panel {
+    @apply bg-brut-gray border-3 border-brut-black;
+    box-shadow: 4px 4px 0px #0A0A0A;
+  }
+}
+

@@ -1,0 +1,70 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Node / React (frontend)
+# ─────────────────────────────────────────────────────────────────────────────
+node_modules/
+frontend/build/
+frontend/.env.local
+frontend/.env.production.local
+frontend/.env.test.local
+# keep .env.development in git as a documented example — it contains no secrets
+# frontend/.env.development
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp
+.pnp.js
+.npm/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Java / Maven (backend)
+# ─────────────────────────────────────────────────────────────────────────────
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+replay_pid*
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IDEs & editors
+# ─────────────────────────────────────────────────────────────────────────────
+.idea/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+.factorypath
+*.sublime-project
+*.sublime-workspace
+.vscode/
+!.vscode/extensions.json
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OS artefacts
+# ─────────────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Misc
+# ─────────────────────────────────────────────────────────────────────────────
+*.log
+*.tmp
+*.swp
+*.swo
+*.bak
+.env
+.cache/
+dist/
+coverage/
