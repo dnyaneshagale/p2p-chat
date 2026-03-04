@@ -37,7 +37,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
      *   "https://your-app.web.app"         (single Firebase origin)
      *   "https://your-app.web.app,https://custom.domain.com"  (multiple)
      */
-    @Value("#{'${app.cors.allowed-origins:*}'.split(',')}")
+    @Value("#{'${app.cors.allowed-origins:*}'.split(',').![trim()]}")
     private String[] allowedOrigins;
 
     @Override
