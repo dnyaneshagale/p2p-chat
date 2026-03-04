@@ -245,7 +245,7 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
   useEffect(() => { userNameRef.current  = userName;  }, [userName]);
   useEffect(() => { callStateRef.current = callState; }, [callState]);
 
-  // Fetch TURN on mount (best-effort warm-up)
+  // Fetch TURN credentials on mount so they're ready before the first call
   useEffect(() => {
     let cancelled = false;
     fetchIceConfig().then((c) => { if (!cancelled) iceConfigRef.current = c; });
