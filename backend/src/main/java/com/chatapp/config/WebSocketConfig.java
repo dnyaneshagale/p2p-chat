@@ -44,7 +44,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry
             .addHandler(signalingHandler, "/signal")
-            .setAllowedOrigins(allowedOrigins);
+            .setAllowedOriginPatterns(allowedOrigins);
     }
 
     /**
