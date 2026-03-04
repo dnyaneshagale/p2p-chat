@@ -26,9 +26,9 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
     setVoState("expired");
   }, [liveUrl]);
 
-  const timeStr = new Date(timestamp).toLocaleTimeString([], {
-    hour: "2-digit", minute: "2-digit",
-  });
+  const timeStr = timestamp
+    ? new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "";
 
   // ── System notification ────────────────────────────────────────────────────
   if (isSystem) {
@@ -72,11 +72,11 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
           className="mt-2 flex flex-col items-center justify-center gap-2
                      bg-brut-black text-white border-3 border-brut-black
                      px-6 py-5 w-full font-black uppercase tracking-widest
-                     hover:bg-brut-pink transition-colors"
+                     active:bg-brut-pink active:scale-[0.98] transition-all duration-100"
           style={{ boxShadow: "4px 4px 0px #FF2D78" }}
         >
-          <Eye size={32} strokeWidth={1.5} />
-          <span className="text-xs">TAP TO VIEW · VIEW ONCE</span>
+          <Eye size={28} strokeWidth={1.5} />
+          <span className="text-[11px] sm:text-xs">TAP TO VIEW · VIEW ONCE</span>
           <span className="text-[10px] opacity-50 normal-case tracking-normal font-mono">
             {fileName} · {fileType}
           </span>
@@ -112,7 +112,7 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
             src={url}
             alt={fileName}
             draggable={false}
-            className="w-full max-w-[220px] sm:max-w-[240px] max-h-[180px] sm:max-h-[200px] object-cover block"
+            className="w-full max-w-[240px] sm:max-w-[280px] max-h-[200px] sm:max-h-[220px] object-cover block"
           />
           {/* Expand hint on hover */}
           <div className="absolute inset-0 bg-brut-black/0 group-hover/img:bg-brut-black/20
@@ -140,7 +140,7 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
         >
           <video
             src={url}
-            className="max-w-[240px] max-h-[160px] object-cover block pointer-events-none"
+            className="max-w-[240px] sm:max-w-[280px] max-h-[180px] sm:max-h-[200px] object-cover block pointer-events-none"
             preload="metadata"
           />
           {/* Play overlay */}
@@ -194,11 +194,11 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
   const showViewOnceBadge = viewOnce && isSelf && isMedia;
 
   return (
-    <div className={`flex flex-col mb-4 animate-slide-up ${isSelf ? "items-end" : "items-start"}`}>
+    <div className={`flex flex-col mb-2.5 sm:mb-4 animate-slide-up ${isSelf ? "items-end" : "items-start"}`}>
       {/* Sender name tag */}
       <span className="text-[10px] font-black uppercase tracking-widest
                        text-brut-black/50 mb-1 mx-1">
-        {isSelf ? "YOU" : from.toUpperCase()}
+        {isSelf ? "YOU" : (from || "PEER").toUpperCase()}
       </span>
 
       {/* Bubble */}
@@ -238,11 +238,13 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
           </span>
           <button
             onClick={() => onReply?.(message)}
-            className="text-[10px] font-black uppercase tracking-wider
-                       opacity-0 group-hover:opacity-50 hover:!opacity-100
-                       transition-opacity duration-100 hover:text-brut-pink"
+            className="-m-2 p-2 text-[10px] font-black uppercase tracking-wider
+                       sm:opacity-0 sm:group-hover:opacity-50 hover:!opacity-100
+                       opacity-40 active:opacity-100 active:text-brut-pink
+                       transition-all duration-100 rounded-md
+                       active:bg-brut-black/5"
           >
-            <CornerUpLeft size={11} strokeWidth={2.5} className="inline mr-0.5" /> REPLY
+            <CornerUpLeft size={12} strokeWidth={2.5} className="inline mr-0.5" /> REPLY
           </button>
         </div>
       </div>

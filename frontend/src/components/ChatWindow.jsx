@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Video, PhoneOff, Eye, EyeOff, Paperclip, Send, X, Upload, Zap } from "lucide-react";
+import { Phone, Video, PhoneOff, Eye, EyeOff, Paperclip, Send, X, Upload, Zap } from "lucide-react";
 import MessageBubble from "./MessageBubble";
-import VideoCall from "./VideoCall";
 import MediaViewer from "./MediaViewer";
 
 /**
@@ -12,26 +11,22 @@ import MediaViewer from "./MediaViewer";
  *   - Reply-to quoted messages
  *   - Text input with Enter-to-send
  *   - File/media attachment via button or drag-and-drop
- *   - Video call control (start/end/mute/camera toggle)
+ *   - Voice & video call buttons (WhatsApp-style)
  *   - Status bar showing WebRTC connection state
  *
  * Props:
- *   @param {string}   userName         - Local user's display name
- *   @param {string}   peerName         - Remote peer's display name (from signaling)
+ *   @param {string}   userName
+ *   @param {string}   peerName
  *   @param {string}   roomId
- *   @param {boolean}  isConnected      - WebRTC data channel open
- *   @param {Array}    messages         - Array of message objects
+ *   @param {boolean}  isConnected
+ *   @param {Array}    messages
  *   @param {function} onSendMessage    - (text, replyTo) => void
  *   @param {function} onSendFile       - (File) => void
+ *   @param {function} onStartVoiceCall
  *   @param {function} onStartVideoCall
- *   @param {function} onEndVideoCall
- *   @param {function} onToggleMic
- *   @param {function} onToggleCamera
- *   @param {boolean}  isVideoCallActive
- *   @param {boolean}  isMicOn
- *   @param {boolean}  isCameraOn
- *   @param {object}   localStreamRef   - Ref to local MediaStream
- *   @param {MediaStream|null} remoteStream
+ *   @param {function} onEndCall
+ *   @param {string}   callState        - "idle" | "outgoing-ringing" | ...
+ *   @param {string}   callType         - "voice" | "video" | null
  *   @param {string}   status           - "waiting" | "connected" | "peer-left"
  */
 export default function ChatWindow({
@@ -42,15 +37,11 @@ export default function ChatWindow({
   messages,
   onSendMessage,
   onSendFile,
+  onStartVoiceCall,
   onStartVideoCall,
-  onEndVideoCall,
-  onToggleMic,
-  onToggleCamera,
-  isVideoCallActive,
-  isMicOn,
-  isCameraOn,
-  localStreamRef,
-  remoteStream,
+  onEndCall,
+  callState,
+  callType,
   status,
 }) {
   const [text, setText]         = useState("");
@@ -117,59 +108,89 @@ export default function ChatWindow({
   const s = statusConfig[status] ?? statusConfig.waiting;
 
   return (
-    <div className="flex flex-col h-screen h-[100dvh] bg-brut-bg relative"
+    <div className="flex flex-col bg-brut-bg relative"
+         style={{ height: "var(--app-height, 100vh)" }}
          onDrop={handleDrop}
          onDragOver={handleDragOver}
          onDragLeave={handleDragLeave}>
 
       {/* ── Top bar ── */}
-      <header className="bg-brut-black flex items-center justify-between px-3 sm:px-5 py-3
-                         border-b-3 border-brut-black shrink-0">
+      <header className="bg-brut-black flex items-center justify-between px-1.5 xs:px-2 sm:px-5 py-1.5 xs:py-2 sm:py-3
+                         border-b-3 border-brut-black shrink-0"
+             style={{ paddingTop: "max(0.375rem, env(safe-area-inset-top))" }}>
         {/* Room info */}
-        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-          <div className="bg-brut-yellow border-3 border-brut-yellow px-2 sm:px-3 py-1 shrink-0"
-               style={{ boxShadow: "3px 3px 0px #FFE500" }}>
-            <span className="font-black text-brut-black text-xs uppercase tracking-widest font-mono">
+        <div className="flex items-center gap-1.5 sm:gap-4 min-w-0">
+          <div className="bg-brut-yellow border-2 sm:border-3 border-brut-yellow px-1 xs:px-1.5 sm:px-3 py-0.5 sm:py-1 shrink-0"
+               style={{ boxShadow: "2px 2px 0px #FFE500" }}>
+            <span className="font-black text-brut-black text-[9px] xs:text-[10px] sm:text-xs uppercase tracking-wider xs:tracking-widest font-mono">
               #{roomId}
             </span>
           </div>
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
             <span className={`status-dot shrink-0 ${s.dot} border-brut-black`} />
             {/* Full text on sm+, short label on mobile */}
             <span className="hidden sm:block text-xs font-black uppercase tracking-wider text-white/70 truncate">
               {s.text}
             </span>
-            <span className="sm:hidden text-xs font-black uppercase tracking-wider text-white/70">
+            <span className="sm:hidden text-[10px] font-black uppercase tracking-wider text-white/70">
               {s.label}
             </span>
           </div>
         </div>
 
-        {/* Video call button — icon-only on mobile, labelled on sm+ */}
-        {isConnected && (
+        {/* Call buttons — voice + video (WhatsApp-style) */}
+        {isConnected && callState === "idle" && (
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button
+              onClick={onStartVoiceCall}
+              className="w-10 h-10 sm:w-auto sm:h-auto sm:p-2.5 flex items-center justify-center
+                         bg-white/10 border-2 border-white/20 text-white/80
+                         active:bg-brut-lime/20 active:border-brut-lime/40 active:scale-95
+                         transition-all duration-100 rounded-lg sm:rounded-sm"
+              title="Voice Call"
+              aria-label="Start voice call"
+            >
+              <Phone size={18} strokeWidth={2.5} className="sm:w-4 sm:h-4" />
+            </button>
+            <button
+              onClick={onStartVideoCall}
+              className="w-10 h-10 sm:w-auto sm:h-auto sm:p-2.5 flex items-center justify-center
+                         bg-white/10 border-2 border-white/20 text-white/80
+                         active:bg-brut-cyan/20 active:border-brut-cyan/40 active:scale-95
+                         transition-all duration-100 rounded-lg sm:rounded-sm"
+              title="Video Call"
+              aria-label="Start video call"
+            >
+              <Video size={18} strokeWidth={2.5} className="sm:w-4 sm:h-4" />
+            </button>
+          </div>
+        )}
+        {isConnected && callState !== "idle" && (
           <button
-            onClick={isVideoCallActive ? onEndVideoCall : onStartVideoCall}
-            className={`flex items-center gap-1.5 shrink-0 px-3 sm:px-4 py-2 text-sm ${
-              isVideoCallActive ? "btn-danger" : "btn-primary"}`}
+            onClick={onEndCall}
+            className="px-3 py-2 sm:px-3 sm:py-2 text-xs sm:text-sm bg-brut-pink text-white
+                       border-2 border-white/20 font-black uppercase tracking-wider
+                       flex items-center gap-1.5 shrink-0 active:scale-95 active:opacity-90
+                       transition-all duration-100 rounded-lg sm:rounded-sm"
           >
-            {isVideoCallActive
-              ? <><PhoneOff size={14} strokeWidth={2.5} /><span className="hidden sm:inline"> END CALL</span></>
-              : <><Video size={14} strokeWidth={2.5} /><span className="hidden sm:inline"> VIDEO CALL</span></>}
+            <PhoneOff size={14} strokeWidth={2.5} />
+            <span className="text-[10px] sm:text-sm">END</span>
           </button>
         )}
       </header>
 
       {/* ── Message list ── */}
-      <main className="flex-1 overflow-y-auto px-4 py-5 space-y-1"
-            style={{ backgroundImage: "radial-gradient(#0A0A0A11 1px, transparent 1px)", backgroundSize: "18px 18px" }}>
+      <main className="flex-1 overflow-y-auto overscroll-y-contain px-2.5 sm:px-4 py-3 sm:py-5 space-y-0.5 sm:space-y-1"
+            style={{ backgroundImage: "radial-gradient(#0A0A0A11 1px, transparent 1px)", backgroundSize: "18px 18px",
+                     WebkitOverflowScrolling: "touch" }}>
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-4">
-            <div className="bg-brut-yellow border-3 border-brut-black w-20 h-20
+            <div className="bg-brut-yellow border-3 border-brut-black w-16 sm:w-20 h-16 sm:h-20
                             flex items-center justify-center"
-                 style={{ boxShadow: "5px 5px 0px #0A0A0A" }}>
-              <Zap size={36} className="text-brut-black" strokeWidth={2.5} />
+                 style={{ boxShadow: "4px 4px 0px #0A0A0A" }}>
+              <Zap size={30} className="text-brut-black sm:w-[36px] sm:h-[36px]" strokeWidth={2.5} />
             </div>
-            <p className="font-black uppercase tracking-wider text-brut-black/40 text-sm">
+            <p className="font-black uppercase tracking-wider text-brut-black/40 text-xs sm:text-sm text-center px-4">
               {isConnected ? "CHANNEL OPEN — SAY SOMETHING" : "WAITING FOR PEER TO JOIN…"}
             </p>
           </div>
@@ -218,35 +239,39 @@ export default function ChatWindow({
       )}
 
       {/* ── Input bar ── */}
-      <footer className="bg-brut-bg border-t-3 border-brut-black px-3 sm:px-4 py-3 shrink-0"
-              style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
-        <div className="flex items-end gap-1.5 sm:gap-2">
+      <footer className="bg-brut-bg border-t-3 border-brut-black px-1.5 xs:px-2 sm:px-4 py-1.5 xs:py-2 sm:py-3 shrink-0"
+              style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
+        <div className="flex items-end gap-0.5 xs:gap-1 sm:gap-2">
 
           {/* View-once toggle */}
           <button
             onClick={() => setViewOnce((v) => !v)}
             disabled={!isConnected}
             title={viewOnce ? "VIEW ONCE ON — next file disappears after viewing" : "Enable View Once for next file"}
-            className={`p-2.5 shrink-0 border-3 border-brut-black font-black
-                        transition-all disabled:opacity-30
+            className={`w-9 h-9 xs:w-10 xs:h-10 sm:w-auto sm:h-auto sm:p-2.5 shrink-0 flex items-center justify-center
+                        border-2 sm:border-3 border-brut-black font-black rounded-lg sm:rounded-none
+                        transition-all duration-100 disabled:opacity-30 active:scale-95
                         ${viewOnce
-                          ? "bg-brut-pink text-white"  // active = pink
-                          : "bg-white text-brut-black/40 hover:text-brut-black"}`}
-            style={viewOnce ? { boxShadow: "3px 3px 0px #0A0A0A" } : {}}
+                          ? "bg-brut-pink text-white"
+                          : "bg-white text-brut-black/40 active:text-brut-black active:bg-brut-gray"}`}
+            style={viewOnce ? { boxShadow: "2px 2px 0px #0A0A0A" } : {}}
             aria-label={viewOnce ? "View Once enabled" : "Enable View Once"}
           >
-            {viewOnce ? <EyeOff size={18} strokeWidth={2.5} /> : <Eye size={18} strokeWidth={2.5} />}
+            {viewOnce ? <EyeOff size={16} strokeWidth={2.5} /> : <Eye size={16} strokeWidth={2.5} />}
           </button>
 
           {/* Attachment button */}
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={!isConnected}
-            className="btn-ghost p-2.5 disabled:opacity-40 shrink-0"
+            className="w-9 h-9 xs:w-10 xs:h-10 sm:w-auto sm:h-auto sm:p-2.5 flex items-center justify-center
+                       bg-white border-2 sm:border-3 border-brut-black rounded-lg sm:rounded-none
+                       disabled:opacity-40 shrink-0 active:bg-brut-gray active:scale-95
+                       transition-all duration-100"
             title="Attach file"
             aria-label="Attach file"
           >
-            <Paperclip size={18} strokeWidth={2.5} />
+            <Paperclip size={17} strokeWidth={2.5} />
           </button>
           <input
             ref={fileInputRef}
@@ -260,7 +285,7 @@ export default function ChatWindow({
           <textarea
             className="input-field resize-none text-sm font-medium leading-relaxed flex-1
                        overflow-y-auto font-sans"
-            style={{ maxHeight: "7rem", minHeight: "44px" }}
+            style={{ maxHeight: "5rem", minHeight: "36px" }}
             rows={1}
             placeholder={isConnected ? "Message…" : "Waiting for peer…"}
             value={text}
@@ -273,11 +298,13 @@ export default function ChatWindow({
           <button
             onClick={handleSend}
             disabled={!isConnected || !text.trim()}
-            className="btn-primary px-4 py-3 shrink-0 disabled:opacity-40 flex items-center gap-1.5"
+            className="btn-primary w-9 h-9 xs:w-11 xs:h-10 sm:w-auto sm:h-auto sm:px-4 sm:py-3 shrink-0
+                       disabled:opacity-40 flex items-center justify-center gap-1.5
+                       rounded-lg sm:rounded-none !transition-all !duration-100 active:scale-95"
             title="Send (Enter)"
             aria-label="Send message"
           >
-            <Send size={16} strokeWidth={2.5} />
+            <Send size={18} strokeWidth={2.5} className="sm:w-4 sm:h-4" />
           </button>
         </div>
         {/* Keyboard hint — desktop only */}
@@ -292,20 +319,6 @@ export default function ChatWindow({
                         text-brut-pink mt-1 text-center">VIEW ONCE ACTIVE</p>
         )}
       </footer>
-
-      {/* ── Video call overlay ── */}
-      {isVideoCallActive && (
-        <VideoCall
-          localStream={localStreamRef.current}
-          remoteStream={remoteStream}
-          isMicOn={isMicOn}
-          isCameraOn={isCameraOn}
-          onToggleMic={onToggleMic}
-          onToggleCamera={onToggleCamera}
-          onEndCall={onEndVideoCall}
-          peerName={peerName}
-        />
-      )}
 
       {/* ── Media viewer overlay ── */}
       {viewerMedia && (

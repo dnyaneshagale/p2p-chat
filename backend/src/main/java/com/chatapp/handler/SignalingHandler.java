@@ -99,6 +99,7 @@ public class SignalingHandler extends TextWebSocketHandler {
                 case "offer"         -> handleRelay(session, msg);
                 case "answer"        -> handleRelay(session, msg);
                 case "ice-candidate" -> handleRelay(session, msg);
+                case "ping"          -> sendMessage(session, SignalMessage.builder().type("pong").build());
                 default              -> log.warn("Unknown message type: {}", msg.getType());
             }
 

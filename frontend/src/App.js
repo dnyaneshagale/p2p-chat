@@ -1,19 +1,13 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import JoinRoom    from "./components/JoinRoom";
-import ChatWindow  from "./components/ChatWindow";
+import JoinRoom      from "./components/JoinRoom";
+import ChatWindow    from "./components/ChatWindow";
+import IncomingCall  from "./components/IncomingCall";
+import CallScreen    from "./components/CallScreen";
 import { useSignaling } from "./hooks/useSignaling";
 import { useWebRTC }    from "./hooks/useWebRTC";
 import { usePrivacy }   from "./hooks/usePrivacy";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Signaling server URL
-//   • In production the React bundle is served from the same origin as the
-//     WebSocket server, so we derive the URL automatically.  The protocol
-//     mirrors the page: https → wss, http → ws (Render always uses https).
-//   • In local development set REACT_APP_SIGNAL_URL in .env.development to
-//     point at whichever backend port you're running (e.g. 8080 for Spring
-//     Boot, 3000 for the Node server).
-// ─────────────────────────────────────────────────────────────────────────────
+// Signaling server URL — derived from REACT_APP_SIGNAL_URL env var or current origin.
 const SIGNALING_URL =
   process.env.REACT_APP_SIGNAL_URL ||
   (() => {
@@ -82,6 +76,23 @@ export default function App() {
     // DataChannel — the server never sees it.
     if (msg.type === "peer-hello") {
       setPeerName(msg.name || "Peer");
+      return;
+    }
+    // Call signaling over data channel
+    if (msg.type === "call-invite") {
+      webrtcRef.current?.handleCallInvite(msg.callType);
+      return;
+    }
+    if (msg.type === "call-accept") {
+      webrtcRef.current?.handleCallAccepted(msg.callType);
+      return;
+    }
+    if (msg.type === "call-reject") {
+      webrtcRef.current?.handleCallRejected();
+      return;
+    }
+    if (msg.type === "call-end") {
+      webrtcRef.current?.handleCallEnd();
       return;
     }
     setMessages((prev) => [...prev, msg]);
@@ -165,11 +176,10 @@ export default function App() {
 
   const {
     sendChatMessage, sendFile,
-    startVideoCall, endVideoCall,
-    toggleMic, toggleCamera,
-    localStreamRef, remoteStream,
-    isConnected, isVideoCallActive,
-    isMicOn, isCameraOn,
+    initiateCall, acceptCall, rejectCall, endCall,
+    switchToVideo, toggleMic, toggleCamera,
+    localStreamRef, remoteStream, isConnected,
+    callState, callType, callStartTime, isMicOn, isCameraOn,
   } = webrtcActions;
 
   // Sync WebRTC connection state → appStatus
@@ -233,25 +243,55 @@ export default function App() {
     return <JoinRoom onJoin={handleJoin} isConnecting={isConnecting} />;
   }
 
+  // Is any call overlay active?
+  const isCallActive = callState !== "idle";
+
   return (
-    <ChatWindow
-      userName={userName}
-      peerName={peerName}
-      roomId={displayRoom}
-      isConnected={isConnected}
-      messages={messages}
-      onSendMessage={handleSendMessage}
-      onSendFile={handleSendFile}
-      onStartVideoCall={startVideoCall}
-      onEndVideoCall={endVideoCall}
-      onToggleMic={toggleMic}
-      onToggleCamera={toggleCamera}
-      isVideoCallActive={isVideoCallActive}
-      isMicOn={isMicOn}
-      isCameraOn={isCameraOn}
-      localStreamRef={localStreamRef}
-      remoteStream={remoteStream}
-      status={appStatus}
-    />
+    <>
+      <ChatWindow
+        userName={userName}
+        peerName={peerName}
+        roomId={displayRoom}
+        isConnected={isConnected}
+        messages={messages}
+        onSendMessage={handleSendMessage}
+        onSendFile={handleSendFile}
+        onStartVoiceCall={() => initiateCall("voice")}
+        onStartVideoCall={() => initiateCall("video")}
+        onEndCall={endCall}
+        callState={callState}
+        callType={callType}
+        status={appStatus}
+      />
+
+      {/* Incoming call overlay — highest z-index */}
+      {callState === "incoming-ringing" && (
+        <IncomingCall
+          peerName={peerName}
+          callType={callType}
+          onAccept={acceptCall}
+          onReject={rejectCall}
+        />
+      )}
+
+      {/* Active call screen — outgoing-ringing, connecting, active, ended */}
+      {(callState === "outgoing-ringing" || callState === "connecting" ||
+        callState === "active" || callState === "ended") && (
+        <CallScreen
+          callType={callType || "voice"}
+          callState={callState}
+          callStartTime={callStartTime}
+          localStream={localStreamRef.current}
+          remoteStream={remoteStream}
+          isMicOn={isMicOn}
+          isCameraOn={isCameraOn}
+          onToggleMic={toggleMic}
+          onToggleCamera={toggleCamera}
+          onEndCall={endCall}
+          onSwitchToVideo={switchToVideo}
+          peerName={peerName}
+        />
+      )}
+    </>
   );
 }

@@ -30,21 +30,22 @@ export default function JoinRoom({ onJoin, isConnecting }) {
   };
 
   return (
-    <div className="min-h-screen bg-brut-bg flex items-center justify-center p-4"
-         style={{ backgroundImage: "radial-gradient(#0A0A0A22 1px, transparent 1px)", backgroundSize: "20px 20px" }}>
+    <div className="bg-brut-bg flex items-center justify-center p-2 xs:p-3 sm:p-4"
+         style={{ minHeight: "var(--app-height, 100vh)",
+                  backgroundImage: "radial-gradient(#0A0A0A22 1px, transparent 1px)", backgroundSize: "20px 20px" }}>
 
       <div className="w-full max-w-md animate-fade-in">
 
         {/* ── Header stamp ── */}
-        <div className="bg-brut-black text-brut-yellow px-6 py-4 border-3 border-brut-black"
-             style={{ boxShadow: "6px 6px 0px #FFE500" }}>
-          <div className="flex items-center gap-3">
-            <Zap size={34} className="text-brut-yellow shrink-0" strokeWidth={2.5} />
+        <div className="bg-brut-black text-brut-yellow px-3 xs:px-4 sm:px-6 py-2.5 xs:py-3 sm:py-4 border-3 border-brut-black"
+             style={{ boxShadow: "4px 4px 0px #FFE500" }}>
+          <div className="flex items-center gap-2 xs:gap-3">
+            <Zap size={24} className="text-brut-yellow shrink-0 xs:w-[28px] xs:h-[28px] sm:w-[34px] sm:h-[34px]" strokeWidth={2.5} />
             <div>
-              <h1 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter leading-none">
+              <h1 className="text-lg xs:text-xl sm:text-3xl font-black uppercase tracking-tighter leading-none">
                 P2P CHAT
               </h1>
-              <p className="text-brut-yellow/60 text-xs font-mono uppercase tracking-widest mt-0.5">
+              <p className="text-brut-yellow/60 text-[9px] xs:text-[10px] sm:text-xs font-mono uppercase tracking-widest mt-0.5">
                 Direct · Encrypted · Zero Relay
               </p>
             </div>
@@ -52,7 +53,7 @@ export default function JoinRoom({ onJoin, isConnecting }) {
         </div>
 
         {/* ── Form card ── */}
-        <div className="card mt-0 border-t-0">
+        <div className="card mt-0 border-t-0 !p-3 xs:!p-5 sm:!p-7">
 
           <form onSubmit={handleSubmit} className="space-y-5">
 
@@ -61,7 +62,7 @@ export default function JoinRoom({ onJoin, isConnecting }) {
               <label className="brut-label">Your Name</label>
               <input
                 type="text"
-                className="input-field font-bold text-lg"
+                className="input-field font-bold text-base sm:text-lg"
                 placeholder="e.g. ALICE"
                 value={userName}
                 onChange={(e) => setUserName(e.target.value)}
@@ -74,10 +75,10 @@ export default function JoinRoom({ onJoin, isConnecting }) {
             {/* Room code */}
             <div>
               <label className="brut-label">Room Code</label>
-              <div className="flex gap-3">
+              <div className="flex gap-1.5 xs:gap-2 sm:gap-3">
                 <input
                   type="text"
-                  className="input-field font-mono font-bold text-xl uppercase tracking-[0.3em] flex-1"
+                  className="input-field font-mono font-bold text-base sm:text-xl uppercase tracking-[0.2em] xs:tracking-[0.3em] flex-1"
                   placeholder="ROOM01"
                   value={roomId}
                   onChange={(e) => setRoomId(e.target.value.toUpperCase())}
@@ -88,9 +89,10 @@ export default function JoinRoom({ onJoin, isConnecting }) {
                   type="button"
                   onClick={generateRoomCode}
                   disabled={isConnecting}
-                  className="btn-ghost text-sm px-3 whitespace-nowrap flex items-center gap-1.5"
+                  className="btn-ghost text-xs sm:text-sm px-3 sm:px-3 py-2.5 whitespace-nowrap
+                             flex items-center gap-1.5 active:scale-95 !transition-all !duration-100"
                 >
-                  <Shuffle size={13} strokeWidth={2.5} /> RNG
+                  <Shuffle size={14} strokeWidth={2.5} /> RNG
                 </button>
               </div>
               <p className="text-xs font-mono text-brut-black/50 mt-2 uppercase tracking-wide">

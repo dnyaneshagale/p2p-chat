@@ -4,6 +4,8 @@ import { useEffect, useRef, useCallback } from "react";
 const BACKOFF_BASE_MS  = 1_000;
 const BACKOFF_MAX_MS   = 30_000;
 const BACKOFF_FACTOR   = 2;
+// Render free tier closes idle connections after ~55s — ping every 25s to keep alive
+const PING_INTERVAL_MS = 25_000;
 
 /**
  * useSignaling
@@ -23,6 +25,7 @@ export function useSignaling(signalingUrl, onMessage) {
   const onMessageRef   = useRef(onMessage);  // latest callback (avoid stale closure)
   const retryDelay     = useRef(BACKOFF_BASE_MS);
   const retryTimer     = useRef(null);
+  const pingTimer      = useRef(null);       // keep-alive interval
   const destroyed      = useRef(false);      // true after explicit disconnect / unmount
   const pendingJoin    = useRef(null);       // room to re-join after reconnect
 
@@ -43,6 +46,13 @@ export function useSignaling(signalingUrl, onMessage) {
       console.log("[Signaling] Connected.");
       retryDelay.current = BACKOFF_BASE_MS; // reset backoff on success
 
+      // Keep-alive ping — prevents Render's 55s idle timeout from closing the connection
+      pingTimer.current = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        }
+      }, PING_INTERVAL_MS);
+
       // Re-join the room if we were already in one before the reconnect
       if (pendingJoin.current) {
         console.log("[Signaling] Re-joining room after reconnect.");
@@ -53,6 +63,7 @@ export function useSignaling(signalingUrl, onMessage) {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+        if (msg.type === "pong") return; // heartbeat reply — ignore silently
         console.log("[Signaling] ←", msg.type, msg);
         onMessageRef.current?.(msg);
       } catch (err) {
@@ -66,6 +77,7 @@ export function useSignaling(signalingUrl, onMessage) {
     };
 
     ws.onclose = (event) => {
+      clearInterval(pingTimer.current); // stop heartbeat on disconnect
       console.log(`[Signaling] Closed (code=${event.code}).`);
       if (destroyed.current) return;   // intentional close — do not reconnect
 
@@ -116,13 +128,5 @@ export function useSignaling(signalingUrl, onMessage) {
     sendSignal({ type: "join", roomId: hashedRoomId });
   }, [sendSignal]);
 
-  /** Permanently close the connection (no reconnect). */
-  const disconnect = useCallback(() => {
-    destroyed.current  = true;
-    pendingJoin.current = null;
-    clearTimeout(retryTimer.current);
-    wsRef.current?.close();
-  }, []);
-
-  return { joinRoom, sendSignal, disconnect };
+  return { joinRoom, sendSignal };
 }

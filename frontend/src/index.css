@@ -10,6 +10,12 @@
    NEO BRUTALIST BASE
    ═══════════════════════════════════════════════════════════════════════ */
 @layer base {
+  html {
+    scroll-behavior: smooth;
+    /* Fallback: set --app-height before JS runs */
+    --app-height: 100vh;
+  }
+
   *, *::before, *::after {
     box-sizing: border-box;
   }
@@ -21,6 +27,7 @@
     font-weight: 500;
     overscroll-behavior: none;
     -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
     /* Privacy: prevent casual text-selection screenshots & copy */
     -webkit-user-select: none;
     -moz-user-select: none;
@@ -28,6 +35,8 @@
     /* Mobile safe-area (notch / home indicator) */
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
+    /* Smooth momentum scrolling on older iOS */
+    -webkit-overflow-scrolling: touch;
   }
 
   /* Allow selection inside text inputs only */
@@ -44,11 +53,13 @@
     pointer-events: auto;
   }
 
-  /* ── Brutal scrollbar ─────────────────────────────────────────────── */
-  ::-webkit-scrollbar        { width: 8px; }
-  ::-webkit-scrollbar-track  { background: #FFFDF0; border-left: 3px solid #0A0A0A; }
-  ::-webkit-scrollbar-thumb  { background: #FFE500; border: 3px solid #0A0A0A; }
-  ::-webkit-scrollbar-thumb:hover { background: #FF2D78; }
+  /* ── Brutal scrollbar (desktop only — mobile uses native) ─────── */
+  @media (min-width: 640px) {
+    ::-webkit-scrollbar        { width: 8px; }
+    ::-webkit-scrollbar-track  { background: #FFFDF0; border-left: 3px solid #0A0A0A; }
+    ::-webkit-scrollbar-thumb  { background: #FFE500; border: 3px solid #0A0A0A; }
+    ::-webkit-scrollbar-thumb:hover { background: #FF2D78; }
+  }
 
   /* ── Focus ring ───────────────────────────────────────────────────── */
   *:focus-visible {
@@ -72,84 +83,75 @@
      Shifts on hover (shadow shrinks + translate) for tactile feel.    */
   .btn-primary {
     @apply bg-brut-yellow text-brut-black font-black uppercase tracking-wider
-           px-6 py-3 border-3 border-brut-black
+           px-4 sm:px-6 py-2.5 sm:py-3 border-3 border-brut-black
            transition-all duration-100 disabled:opacity-40 disabled:cursor-not-allowed
            select-none;
-    box-shadow: 4px 4px 0px #0A0A0A;
+    box-shadow: 3px 3px 0px #0A0A0A;
   }
   .btn-primary:hover:not(:disabled) {
     transform: translate(-2px, -2px);
-    box-shadow: 6px 6px 0px #0A0A0A;
+    box-shadow: 5px 5px 0px #0A0A0A;
   }
   .btn-primary:active:not(:disabled) {
-    transform: translate(2px, 2px);
+    transform: translate(1px, 1px) scale(0.97);
     box-shadow: 1px 1px 0px #0A0A0A;
   }
 
   /* ── Ghost / secondary button ───────────────────────────────────────*/
   .btn-ghost {
     @apply bg-brut-white text-brut-black font-bold uppercase tracking-wide
-           px-5 py-2.5 border-3 border-brut-black
+           px-3 sm:px-5 py-2 sm:py-2.5 border-3 border-brut-black
            transition-all duration-100 select-none;
-    box-shadow: 3px 3px 0px #0A0A0A;
+    box-shadow: 2px 2px 0px #0A0A0A;
   }
   .btn-ghost:hover:not(:disabled) {
     transform: translate(-1px, -1px);
-    box-shadow: 5px 5px 0px #0A0A0A;
+    box-shadow: 4px 4px 0px #0A0A0A;
     background-color: #F0EDDE;
   }
   .btn-ghost:active:not(:disabled) {
-    transform: translate(2px, 2px);
+    transform: translate(1px, 1px) scale(0.97);
     box-shadow: 0px 0px 0px #0A0A0A;
-  }
-
-  /* ── Danger / end-call button ────────────────────────────────────── */
-  .btn-danger {
-    @apply bg-brut-pink text-white font-black uppercase tracking-wider
-           px-6 py-3 border-3 border-brut-black
-           transition-all duration-100 select-none;
-    box-shadow: 4px 4px 0px #0A0A0A;
-  }
-  .btn-danger:hover {
-    transform: translate(-2px, -2px);
-    box-shadow: 6px 6px 0px #0A0A0A;
-  }
-  .btn-danger:active {
-    transform: translate(2px, 2px);
-    box-shadow: 1px 1px 0px #0A0A0A;
   }
 
   /* ── Card ────────────────────────────────────────────────────────── */
   .card {
-    @apply bg-brut-white border-3 border-brut-black p-7;
-    box-shadow: 6px 6px 0px #0A0A0A;
+    @apply bg-brut-white border-3 border-brut-black p-5 sm:p-7;
+    box-shadow: 4px 4px 0px #0A0A0A;
+  }
+  @media (min-width: 640px) {
+    .card { box-shadow: 6px 6px 0px #0A0A0A; }
   }
 
   /* ── Input field ─────────────────────────────────────────────────── */
   .input-field {
     @apply w-full bg-brut-white text-brut-black placeholder-brut-black/40
-           font-medium border-3 border-brut-black px-4 py-3
+           font-medium border-3 border-brut-black px-3 sm:px-4 py-2.5 sm:py-3
            outline-none transition-all duration-100;
-    box-shadow: 3px 3px 0px #0A0A0A;
+    box-shadow: 2px 2px 0px #0A0A0A;
+    font-size: 16px; /* Prevents iOS auto-zoom on focus */
   }
   .input-field:focus {
-    box-shadow: 5px 5px 0px #0A0A0A;
-    transform: translate(-1px, -1px);
+    box-shadow: 3px 3px 0px #0A0A0A;
+  }
+  @media (min-width: 640px) {
+    .input-field { box-shadow: 3px 3px 0px #0A0A0A; font-size: inherit; }
+    .input-field:focus { box-shadow: 5px 5px 0px #0A0A0A; transform: translate(-1px, -1px); }
   }
 
   /* ── Message bubble — self (yellow) ─────────────────────────────── */
   .bubble-self {
     @apply bg-brut-yellow text-brut-black font-medium border-3 border-brut-black
-           px-4 py-2.5 break-words;
-    box-shadow: 3px 3px 0px #0A0A0A;
+           px-3 sm:px-4 py-2 sm:py-2.5 break-words;
+    box-shadow: 2px 2px 0px #0A0A0A;
     max-width: 85%;
   }
 
   /* ── Message bubble — peer (white) ──────────────────────────────── */
   .bubble-peer {
     @apply bg-brut-white text-brut-black font-medium border-3 border-brut-black
-           px-4 py-2.5 break-words;
-    box-shadow: 3px 3px 0px #0A0A0A;
+           px-3 sm:px-4 py-2 sm:py-2.5 break-words;
+    box-shadow: 2px 2px 0px #0A0A0A;
     max-width: 85%;
   }
 
@@ -167,17 +169,5 @@
     @apply text-xs font-black uppercase tracking-widest text-brut-black/60 mb-1.5 block;
   }
 
-  /* ── Tag / badge ─────────────────────────────────────────────────── */
-  .brut-badge {
-    @apply text-xs font-black uppercase tracking-wider px-2 py-0.5
-           border-2 border-brut-black bg-brut-yellow;
-    box-shadow: 2px 2px 0px #0A0A0A;
-  }
-
-  /* ── Panel / sidebar section ─────────────────────────────────────── */
-  .brut-panel {
-    @apply bg-brut-gray border-3 border-brut-black;
-    box-shadow: 4px 4px 0px #0A0A0A;
-  }
 }
 

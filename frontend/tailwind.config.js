@@ -2,6 +2,15 @@
 module.exports = {
   content: ["./src/**/*.{js,jsx,ts,tsx}", "./public/index.html"],
   theme: {
+    // Add xs breakpoint for small phones (iPhone SE = 320px, small Android = 360px)
+    screens: {
+      xs: "360px",
+      sm: "640px",
+      md: "768px",
+      lg: "1024px",
+      xl: "1280px",
+      "2xl": "1536px",
+    },
     extend: {
       // ── Neo Brutalist Palette ─────────────────────────────────────────────
       colors: {
@@ -14,7 +23,7 @@ module.exports = {
           cyan:   "#00CFFF",   // electric cyan
           white:  "#FFFFFF",
           gray:   "#F0EDDE",   // slightly darker cream for panels
-          border: "#0A0A0A",   // always-black border
+
         },
       },
       // ── Typography ───────────────────────────────────────────────────────
@@ -26,15 +35,6 @@ module.exports = {
         black: "900",
       },
       // ── Brutal offset box shadows ─────────────────────────────────────────
-      boxShadow: {
-        brut:   "4px 4px 0px #0A0A0A",
-        "brut-lg": "6px 6px 0px #0A0A0A",
-        "brut-sm": "2px 2px 0px #0A0A0A",
-        "brut-yellow": "4px 4px 0px #FFE500",
-        "brut-pink":   "4px 4px 0px #FF2D78",
-        "brut-lime":   "4px 4px 0px #AAFF00",
-        "brut-inset":  "inset 3px 3px 0px #0A0A0A",
-      },
       borderWidth: {
         3: "3px",
       },
@@ -42,8 +42,11 @@ module.exports = {
       animation: {
         "fade-in":  "fadeIn 0.15s ease-in-out",
         "slide-up": "slideUp 0.2s ease-out",
-        "glitch":   "glitch 0.3s steps(2) infinite",
         "blink":    "blink 1s step-start infinite",
+        "call-ring-1":       "callRing1 2s ease-out infinite",
+        "call-ring-2":       "callRing2 2s ease-out 0.4s infinite",
+        "call-ring-3":       "callRing3 2s ease-out 0.8s infinite",
+        "call-accept-pulse": "callAcceptPulse 1.5s ease-in-out infinite",
       },
       keyframes: {
         fadeIn:  { "0%": { opacity: 0 }, "100%": { opacity: 1 } },
@@ -51,14 +54,25 @@ module.exports = {
           "0%":   { transform: "translateY(10px)", opacity: 0 },
           "100%": { transform: "translateY(0)",    opacity: 1 },
         },
-        glitch: {
-          "0%,100%": { transform: "translate(0)" },
-          "25%":     { transform: "translate(-2px, 1px)" },
-          "75%":     { transform: "translate(2px, -1px)" },
-        },
         blink: {
           "0%,100%": { opacity: 1 },
           "50%":     { opacity: 0 },
+        },
+        callRing1: {
+          "0%":   { transform: "scale(1)",   opacity: 0.4 },
+          "100%": { transform: "scale(1.5)", opacity: 0 },
+        },
+        callRing2: {
+          "0%":   { transform: "scale(1)",   opacity: 0.3 },
+          "100%": { transform: "scale(1.7)", opacity: 0 },
+        },
+        callRing3: {
+          "0%":   { transform: "scale(1)",   opacity: 0.2 },
+          "100%": { transform: "scale(1.9)", opacity: 0 },
+        },
+        callAcceptPulse: {
+          "0%,100%": { transform: "scale(1)" },
+          "50%":     { transform: "scale(1.08)" },
         },
       },
     },

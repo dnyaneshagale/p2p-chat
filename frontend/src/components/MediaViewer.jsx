@@ -76,13 +76,89 @@ export default function MediaViewer({ media, onClose }) {
     return () => el.removeEventListener("wheel", onWheel);
   }, [isImage]);
 
-  // ── Double-click: toggle fit ↔ 2× ────────────────────────────────────────
+  // ── Touch pinch-to-zoom + touch-drag-to-pan ──────────────────────────────
+  const lastTouchDist = useRef(null);
+  const touchDragging = useRef(false);
+  const touchStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
+
+  useEffect(() => {
+    const el = mediaAreaRef.current;
+    if (!el || !isImage) return;
+
+    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+
+    const onTouchStart = (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        lastTouchDist.current = dist(e.touches);
+      } else if (e.touches.length === 1) {
+        touchDragging.current = true;
+        touchStart.current = {
+          x: e.touches[0].clientX, y: e.touches[0].clientY,
+          ox: offset.x, oy: offset.y,
+        };
+      }
+    };
+
+    const onTouchMove = (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const d = dist(e.touches);
+        if (lastTouchDist.current) {
+          const delta = d / lastTouchDist.current;
+          setScale((prev) => {
+            const next = Math.min(5, Math.max(1, prev * delta));
+            if (next <= 1) setOffset({ x: 0, y: 0 });
+            return next;
+          });
+        }
+        lastTouchDist.current = d;
+      } else if (e.touches.length === 1 && touchDragging.current) {
+        // Only pan when zoomed in
+        setScale((s) => {
+          if (s > 1) {
+            setOffset({
+              x: touchStart.current.ox + (e.touches[0].clientX - touchStart.current.x),
+              y: touchStart.current.oy + (e.touches[0].clientY - touchStart.current.y),
+            });
+          }
+          return s;
+        });
+      }
+    };
+
+    const onTouchEnd = (e) => {
+      if (e.touches.length < 2) lastTouchDist.current = null;
+      if (e.touches.length === 0) touchDragging.current = false;
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [isImage, offset]);
+
+  // ── Double-click / double-tap: toggle fit ↔ 2× ────────────────────────────
+  const lastTap = useRef(0);
   const handleDblClick = useCallback(() => {
     if (scale > 1) { setScale(1); setOffset({ x: 0, y: 0 }); }
     else           { setScale(2); }
   }, [scale]);
 
-  // ── Drag-to-pan ───────────────────────────────────────────────────────────
+  const handleTouchTap = useCallback((e) => {
+    if (e.touches && e.touches.length > 1) return;
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      handleDblClick();
+    }
+    lastTap.current = now;
+  }, [handleDblClick]);
+
+  // ── Drag-to-pan (mouse) ───────────────────────────────────────────────────
   const handleMouseDown = useCallback((e) => {
     if (scale <= 1) return;
     dragging.current = true;
@@ -127,8 +203,9 @@ export default function MediaViewer({ media, onClose }) {
       onMouseLeave={handleMouseUp}
     >
       {/* ── Top bar ── */}
-      <div className="flex items-center justify-between px-4 py-3 shrink-0"
-           style={{ borderBottom: "3px solid rgba(255,255,255,0.08)" }}>
+      <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 sm:py-3 shrink-0"
+           style={{ borderBottom: "3px solid rgba(255,255,255,0.08)",
+                    paddingTop: "max(0.625rem, env(safe-area-inset-top))" }}>
         <div className="flex items-center gap-3">
           {/* Sender avatar chip */}
           <div className="bg-brut-yellow border-3 border-brut-yellow w-9 h-9
@@ -139,13 +216,13 @@ export default function MediaViewer({ media, onClose }) {
             <p className="text-white font-black text-sm uppercase tracking-wider leading-none">
               {from?.toUpperCase() ?? "UNKNOWN"}
             </p>
-            <p className="text-white/40 font-mono text-[10px] mt-0.5 truncate max-w-[220px]">
+            <p className="text-white/40 font-mono text-[10px] mt-0.5 truncate max-w-[45vw] sm:max-w-[220px]">
               {fileName}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           {/* View-once badge */}
           {viewOnce && (
             <div className="bg-brut-pink border-3 border-brut-pink px-2 py-1
@@ -160,25 +237,25 @@ export default function MediaViewer({ media, onClose }) {
           {!viewOnce && (isImage || isVideo) && (
             <button
               onClick={handleDownload}
-              className="w-9 h-9 flex items-center justify-center border-3 border-white/20
-                         text-white/60 hover:text-white hover:border-white
-                         transition-colors"
+              className="w-11 h-11 flex items-center justify-center border-3 border-white/20
+                         text-white/60 active:text-white active:border-white active:scale-95
+                         transition-all duration-100 rounded-lg sm:rounded-none"
               title="Download"
               aria-label="Download"
             >
-              <Download size={16} strokeWidth={2} />
+              <Download size={18} strokeWidth={2} />
             </button>
           )}
           {/* Close */}
           <button
             onClick={onClose}
-            className="w-10 h-10 flex items-center justify-center border-3 border-white/20
-                       text-white/60 hover:text-white hover:border-brut-pink
-                       font-black text-lg transition-colors"
+            className="w-11 h-11 flex items-center justify-center border-3 border-white/20
+                       text-white/60 active:text-white active:border-brut-pink active:scale-95
+                       font-black text-lg transition-all duration-100 rounded-lg sm:rounded-none"
             title="Close (Esc)"
             aria-label="Close viewer"
           >
-            <X size={16} strokeWidth={2.5} />
+            <X size={18} strokeWidth={2.5} />
           </button>
         </div>
       </div>
@@ -198,6 +275,7 @@ export default function MediaViewer({ media, onClose }) {
             draggable={false}
             onMouseDown={handleMouseDown}
             onDoubleClick={handleDblClick}
+            onTouchStart={handleTouchTap}
             style={{
               transform: `scale(${scale}) translate(${offset.x / scale}px, ${offset.y / scale}px)`,
               transition: dragging.current ? "none" : "transform 0.15s ease",
@@ -206,6 +284,7 @@ export default function MediaViewer({ media, onClose }) {
               objectFit: "contain",
               cursor: scale > 1 ? "grab" : "zoom-in",
               userSelect: "none",
+              touchAction: "none",
             }}
           />
         )}
@@ -233,15 +312,17 @@ export default function MediaViewer({ media, onClose }) {
       </div>
 
       {/* ── Bottom bar ── */}
-      <div className="shrink-0 px-5 py-3 flex items-center justify-between"
-           style={{ borderTop: "3px solid rgba(255,255,255,0.08)" }}>
+      <div className="shrink-0 px-3 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between"
+           style={{ borderTop: "3px solid rgba(255,255,255,0.08)",
+                    paddingBottom: "max(0.625rem, env(safe-area-inset-bottom))" }}>
         <div>
           <p className="text-white/50 font-mono text-[10px] uppercase tracking-wider">
             {dateStr} · {timeStr}
           </p>
           {isImage && (
             <p className="text-white/25 font-mono text-[10px] mt-0.5">
-              scroll to zoom · double-click to toggle · drag to pan
+              <span className="hidden sm:inline">scroll to zoom · double-click to toggle · drag to pan</span>
+              <span className="sm:hidden">pinch to zoom · double-tap to toggle · drag to pan</span>
             </p>
           )}
           {viewOnce && (
