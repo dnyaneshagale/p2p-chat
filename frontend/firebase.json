@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "chat-p2p-x",
     "public": "build",
     "ignore": [
       "firebase.json",

@@ -4,10 +4,15 @@
 node_modules/
 frontend/build/
 frontend/.env.local
+frontend/.env.production
 frontend/.env.production.local
 frontend/.env.test.local
 # keep .env.development in git as a documented example — it contains no secrets
 # frontend/.env.development
+
+# Firebase CLI cache & deploy artefacts
+.firebase/
+frontend/.firebase/
 
 npm-debug.log*
 yarn-debug.log*
