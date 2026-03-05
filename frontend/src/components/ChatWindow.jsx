@@ -113,6 +113,20 @@ export default function ChatWindow({
   };
   const s = statusConfig[status] ?? statusConfig.waiting;
 
+  const ThemeToggleBtn = () => (
+    <button
+      onClick={onToggleDark}
+      title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+      aria-label="Toggle theme"
+      className="w-10 h-10 sm:w-auto sm:h-auto sm:p-2.5 flex items-center justify-center
+                 bg-white/10 border-2 border-white/20 text-white/60
+                 active:bg-brut-yellow/20 active:border-brut-yellow/40 active:text-brut-yellow active:scale-95
+                 transition-all duration-100 rounded-lg sm:rounded-sm"
+    >
+      {darkMode ? <Sun size={16} strokeWidth={2.5} /> : <Moon size={16} strokeWidth={2.5} />}
+    </button>
+  );
+
   return (
     <div className="flex flex-col bg-brut-bg dark:bg-mid-bg relative"
          style={{ height: "var(--app-height, 100vh)" }}
@@ -161,17 +175,7 @@ export default function ChatWindow({
         {/* Call buttons — voice + video (WhatsApp-style) + theme toggle */}
         {isConnected && callState === "idle" && (
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <button
-              onClick={onToggleDark}
-              title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
-              aria-label="Toggle theme"
-              className="w-10 h-10 sm:w-auto sm:h-auto sm:p-2.5 flex items-center justify-center
-                         bg-white/10 border-2 border-white/20 text-white/60
-                         active:bg-brut-yellow/20 active:border-brut-yellow/40 active:text-brut-yellow active:scale-95
-                         transition-all duration-100 rounded-lg sm:rounded-sm"
-            >
-              {darkMode ? <Sun size={16} strokeWidth={2.5} /> : <Moon size={16} strokeWidth={2.5} />}
-            </button>
+            <ThemeToggleBtn />
             <button
               onClick={onStartVoiceCall}
               className="w-10 h-10 sm:w-auto sm:h-auto sm:p-2.5 flex items-center justify-center
@@ -198,17 +202,7 @@ export default function ChatWindow({
         )}
         {isConnected && callState !== "idle" && (
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <button
-              onClick={onToggleDark}
-              title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
-              aria-label="Toggle theme"
-              className="w-10 h-10 sm:w-auto sm:h-auto sm:p-2.5 flex items-center justify-center
-                         bg-white/10 border-2 border-white/20 text-white/60
-                         active:bg-brut-yellow/20 active:scale-95
-                         transition-all duration-100 rounded-lg sm:rounded-sm"
-            >
-              {darkMode ? <Sun size={16} strokeWidth={2.5} /> : <Moon size={16} strokeWidth={2.5} />}
-            </button>
+            <ThemeToggleBtn />
             <button
               onClick={onEndCall}
               className="px-3 py-2 sm:px-3 sm:py-2 text-xs sm:text-sm bg-brut-pink text-white
@@ -221,19 +215,7 @@ export default function ChatWindow({
             </button>
           </div>
         )}
-        {!isConnected && (
-          <button
-            onClick={onToggleDark}
-            title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
-            aria-label="Toggle theme"
-            className="w-10 h-10 sm:w-auto sm:h-auto sm:p-2.5 flex items-center justify-center
-                       bg-white/10 border-2 border-white/20 text-white/60
-                       active:bg-brut-yellow/20 active:scale-95
-                       transition-all duration-100 rounded-lg sm:rounded-sm"
-          >
-            {darkMode ? <Sun size={16} strokeWidth={2.5} /> : <Moon size={16} strokeWidth={2.5} />}
-          </button>
-        )}
+        {!isConnected && <ThemeToggleBtn />}
       </header>
 
       {/* ── Message list ── */}

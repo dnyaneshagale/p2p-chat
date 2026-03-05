@@ -1,6 +1,8 @@
 # ⚡ P2P Chat
 
-> **Browser-native peer-to-peer chat with end-to-end encryption, chunked file transfer, live video calls, and View Once media — all over direct WebRTC connections, zero server relay.**
+> **Browser-native peer-to-peer chat with end-to-end encryption, chunked file transfer, live voice/video calls, View Once media, and swipe-to-reply — all over direct WebRTC connections. Zero server relay. Zero stored messages.**
+
+**[→ Live Demo: chat-p2p-x.web.app](https://chat-p2p-x.web.app)**
 
 ---
 
@@ -42,9 +44,11 @@ Browser A                Signaling Server              Browser B
 
 ### Messaging
 - Real-time text chat over RTCDataChannel
-- **Reply-to** — quote any previous message
-- Drag-and-drop file sending
-- System notifications (peer joined / left)
+- **WhatsApp-style bubbles** — rounded corners with directional tail, soft drop-shadow
+- **Swipe-to-reply** — drag any bubble rightward; haptic feedback fires at threshold, bubble snaps back, quoted reply bar appears
+- **Reply button** inside each bubble — one tap to quote without swiping
+- Drag-and-drop file sending directly into the chat window
+- System notification pills (peer joined / peer left)
 
 ### File Transfer
 - Unlimited file size — chunked into 64 KB pieces
@@ -60,47 +64,21 @@ Browser A                Signaling Server              Browser B
 - The moment the viewer is **closed**, the blob URL is revoked and the bubble shows "VIEWED — MEDIA DESTROYED"
 - Identical to WhatsApp's model: fully visible while open, permanently gone on close
 
-### Video Calls
+### Voice & Video Calls
 - HD 1280 × 720 @ 30 fps via `getUserMedia`
+- **Noise gate** audio chain — silence below the gate threshold is suppressed to reduce background noise
 - Picture-in-picture local preview
-- Mic mute / camera toggle
-- Instant end-call
+- Mid-call mic mute / camera toggle / voice↔video switch
+- End-call button always visible in the header
 
-### UI
-- **Neo Brutalist** design — bold 3 px borders, offset drop shadows, high-contrast yellow / pink / black palette
-- **Space Grotesk** + **Space Mono** typefaces
+### UI & Theming
+- **Neo Brutalist** design — 3 px solid borders, offset drop-shadows, yellow / pink / black palette
+- **Dark Mode (Midnight Blue)** — deep navy surfaces, royal-blue message bubbles, one-click toggle persisted to `localStorage`
+- Space Grotesk + Space Mono typefaces
 - Lucide SVG icons throughout (no emoji)
-- Tactile button interactions (shadow shrinks + translate on press)
-- Animated entry for messages and panels
-- Fully keyboard accessible (`Tab`, `Enter`, `Esc`)
-
----
-
-## Architecture
-
-```
-Browser A                Signaling Server              Browser B
-─────────                ────────────────              ─────────
-  │                            │                            │
-  │── join (SHA-256 hash) ────>│                            │
-  │<── waiting ────────────────│                            │
-  │                            │<── join (same hash) ───────│
-  │<── ready ──────────────────│                            │
-  │                            │─── joined ────────────────>│
-  │                            │                            │
-  │── SDP offer ──────────────>│─── SDP offer ─────────────>│
-  │<── SDP answer ─────────────│<── SDP answer ─────────────│
-  │<── ICE candidates ──────── │ ── ICE candidates ─────────│
-  │                            │                            │
-  ╔══════════════════════════════════════════════════════════╗
-  ║          Direct WebRTC P2P connection established        ║
-  ║    Server is completely out of the data path from here   ║
-  ╚══════════════════════════════════════════════════════════╝
-  │                                                          │
-  │◄═══════ Text  /  Files  /  Video  (DataChannel) ════════►│
-```
-
-**Room privacy**: `SHA-256("chatapp\0" + roomCode.toLowerCase())` — only the first 32 hex characters are sent. Brute-forcing a 6-character alphanumeric code against the hash is computationally impractical.
+- Tactile button press animations (shadow collapses on press)
+- Mobile-first — `safe-area-inset` padding, `xs`/`sm`/`md` responsive breakpoints
+- Fully keyboard accessible (`Tab`, `Enter`, `Shift+Enter`, `Esc`)
 
 ---
 
@@ -112,7 +90,7 @@ Browser A                Signaling Server              Browser B
 | Styling | Tailwind CSS 3.4 (Neo Brutalist design tokens) |
 | Icons | Lucide React |
 | WebRTC | Native browser APIs — `RTCPeerConnection`, `RTCDataChannel`, `getUserMedia` |
-| Signaling server | Spring Boot 3.2.3, Java 17, Spring WebSocket |
+| Signaling server | Spring Boot 3.2.3 · Java 21 · Spring WebSocket |
 | Crypto | Web Crypto API (`SubtleCrypto.digest`) for room hashing |
 
 ---
@@ -122,7 +100,7 @@ Browser A                Signaling Server              Browser B
 ### Prerequisites
 
 - **Node.js** ≥ 18
-- **Java 17** and **Maven 3**
+- **Java 21** and **Maven 3**
 
 ### 1. Clone
 
@@ -249,25 +227,22 @@ chatapp/
 │
 └── frontend/                              # React app (Create React App)
     ├── .env.development                   # Local dev signaling URL override
-    ├── firebase.json                      # Firebase Hosting config (SPA rewrite, cache, CSP headers)
-    ├── .firebaserc                        # Firebase project alias (edit before first deploy)
-    ├── tailwind.config.js                 # Neo Brutalist design tokens
-    ├── public/
-    │   └── index.html
+    ├── firebase.json                      # Hosting config: SPA rewrite, cache headers, CSP
+    ├── tailwind.config.js                 # darkMode:"class", brut + mid palettes, xs breakpoint
+    ├── public/index.html
     └── src/
-        ├── App.js                         # Root — state orchestration, room hashing
-        ├── index.css                      # Tailwind + Neo Brutalist component classes
-        ├── index.js
+        ├── App.js                         # Root: state, room hashing, signaling ↔ WebRTC bridge
+        ├── index.css                      # Tailwind layers + Neo Brutalist component classes
         ├── components/
-        │   ├── JoinRoom.jsx               # Landing / room-join screen
-        │   ├── ChatWindow.jsx            # Main chat UI, toolbar, drag-and-drop
-        │   ├── MessageBubble.jsx         # Message bubble + view-once state machine
-        │   ├── MediaViewer.jsx           # Full-screen lightbox (zoom / pan / video)
-        │   └── VideoCall.jsx             # Video call overlay with PiP
+        │   ├── JoinRoom.jsx               # Landing / room-join screen with dark mode toggle
+        │   ├── ChatWindow.jsx             # Main chat UI: toolbar, message list, reply bar, input
+        │   ├── MessageBubble.jsx          # Bubble + swipe-to-reply + view-once state machine
+        │   ├── MediaViewer.jsx            # Full-screen lightbox (pinch/drag zoom, video playback)
+        │   └── VideoCall.jsx             # Call overlay with PiP, mic/camera/noise-gate controls
         └── hooks/
-            ├── useWebRTC.js              # RTCPeerConnection, DataChannel, file chunking, media
-            ├── useSignaling.js           # WebSocket signaling client
-            └── usePrivacy.js            # Screenshot / drag / context-menu guards
+            ├── useWebRTC.js               # RTCPeerConnection, DataChannel, file chunking, media
+            ├── useSignaling.js            # WebSocket signaling client with reconnect logic
+            └── usePrivacy.js             # Screenshot / drag / devtools / context-menu guards
 ```
 
 ---

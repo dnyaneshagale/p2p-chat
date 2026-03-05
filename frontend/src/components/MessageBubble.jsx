@@ -25,7 +25,6 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
   const [dragging, setDragging] = useState(false);
   const dragStart  = useRef(null);
   const threshHit  = useRef(false);
-  const bubbleRef  = useRef(null);
 
   const handleDone = useCallback(() => {
     if (liveUrl) {
@@ -253,7 +252,6 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
 
         {/* Bubble */}
         <div
-          ref={bubbleRef}
           className={`group relative cursor-grab active:cursor-grabbing select-none
                       ${isSelf ? "bubble-self" : "bubble-peer"}`}
           style={{
