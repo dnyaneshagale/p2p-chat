@@ -206,11 +206,10 @@ public class SignalingHandler extends TextWebSocketHandler {
             .findFirst()
             .ifPresentOrElse(
                 target -> sendMessage(target, msg),
-                () -> sendMessage(sender, SignalMessage.builder()
-                    .type("error")
-                    .roomId(roomId)
-                    .message("No other peer in room to relay to.")
-                    .build())
+                // Other peer is gone (disconnected mid-negotiation) — silently drop.
+                // The sender already received a "peer-left" event; sending an error here
+                // would cause the frontend to crash back to the join screen unnecessarily.
+                () -> log.debug("Relay miss for room {} — other peer already left.", roomId)
             );
     }
 

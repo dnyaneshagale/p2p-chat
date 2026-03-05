@@ -768,8 +768,22 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
     };
   }, []);
 
+  /**
+   * Close the PeerConnection and reset data-channel state without touching
+   * call-state. Call this when the signaling server reports "peer-left" so
+   * ICE-candidate flow stops immediately (avoids relay-miss errors on server).
+   */
+  const resetPeerConnection = useCallback(() => {
+    dataChannelRef.current = null;
+    pcRef.current?.close();
+    pcRef.current = null;
+    setIsConnected(false);
+    isNegotiating.current = false;
+  }, []);
+
   return {
     initiatePeerConnection, handleSignalMessage,
+    resetPeerConnection,
     sendChatMessage, sendFile,
     // Call management
     initiateCall, acceptCall, rejectCall, endCall,

@@ -120,6 +120,10 @@ export default function App() {
 
       case "peer-left":
         setAppStatus("peer-left");
+        // Close the PeerConnection immediately so ICE-candidate flow stops.
+        // Otherwise the browser keeps firing onicecandidate → server tries to relay
+        // → relay fails because the peer is gone (was producing an error dialog).
+        webrtcRef.current?.resetPeerConnection();
         setMessages((prev) => [...prev, {
           id: Date.now(),
           from: "System",
@@ -136,12 +140,20 @@ export default function App() {
         webrtcRef.current?.handleSignalMessage(msg);
         break;
 
-      case "error":
-        console.error("[Signaling] Server error:", msg.message);
-        alert("Signaling error: " + msg.message);
-        setIsConnecting(false);
-        setRoomId(null);
+      case "error": {
+        const msg2 = (msg.message || "").toLowerCase();
+        // Fatal: room full or auth failure — tell the user and send them back.
+        if (msg2.includes("room is full") || msg2.includes("invalid")) {
+          console.error("[Signaling] Fatal error:", msg.message);
+          alert("Could not join room: " + msg.message);
+          setIsConnecting(false);
+          setRoomId(null);
+        } else {
+          // Transient (relay miss, room not found during ICE) — just log.
+          console.warn("[Signaling] Non-fatal error (ignored):", msg.message);
+        }
         break;
+      }
 
       default:
         console.log("[Signaling] Unhandled type:", msg.type);
