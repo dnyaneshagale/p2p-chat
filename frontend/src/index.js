@@ -22,11 +22,21 @@ if (process.env.NODE_ENV === "production") {
 // Also handles keyboard open/close on mobile (visualViewport shrinks).
 // ─────────────────────────────────────────────────────────────────────────────
 function setAppHeight() {
-  // visualViewport is the gold standard — correctly excludes browser UI
-  const vh = window.visualViewport
-    ? window.visualViewport.height
-    : window.innerHeight;
-  document.documentElement.style.setProperty("--app-height", `${vh}px`);
+  const vvp = window.visualViewport;
+  const height = vvp ? vvp.height : window.innerHeight;
+  // offsetTop: how far the visual viewport has been scrolled down inside the
+  // layout viewport. On Android Chrome, when the soft keyboard opens the
+  // browser scrolls window upward to keep the focused input visible —
+  // offsetTop becomes positive, leaving a visible gap between the input bar
+  // and the keyboard. We expose it as --vvp-top so the container can
+  // translateY back into the correct position.
+  const top = vvp ? Math.round(vvp.offsetTop) : 0;
+  document.documentElement.style.setProperty("--app-height", `${height}px`);
+  document.documentElement.style.setProperty("--vvp-top",    `${top}px`);
+  // Snap any document-level scroll caused by the browser scrolling to the
+  // focused input. The translateY on the container handles the visual
+  // repositioning — the document scroll itself just creates the gap.
+  if (top > 0) window.scrollTo(0, 0);
 }
 
 // Run immediately

@@ -102,7 +102,8 @@ export default function JoinRoom({ onJoin, isConnecting, joinError, onClearError
   };
 
   return (
-    <div className="bg-brut-bg dark:bg-mid-bg" style={{ minHeight: "var(--app-height, 100vh)" }}>
+    <div className="bg-brut-bg dark:bg-mid-bg overflow-y-auto overscroll-none"
+         style={{ height: "var(--app-height, 100vh)", WebkitOverflowScrolling: "touch" }}>
 
       {/* ═══════════════════════════════════════════════════════
           STICKY NAV

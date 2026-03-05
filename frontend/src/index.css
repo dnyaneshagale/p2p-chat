@@ -14,8 +14,15 @@
     scroll-behavior: smooth;
     /* Fallback: set --app-height before JS runs */
     --app-height: 100vh;
+    --vvp-top: 0px;
     /* Dot pattern color (changes with theme) */
     --dot-color: rgba(10, 10, 10, 0.07);
+    /* Prevent the html element from scrolling — we only want inner
+       containers (message list) to scroll, not the document itself.
+       Locking the outer scroll here keeps visualViewport.offsetTop = 0
+       in most cases, preventing the keyboard-gap bug. */
+    overflow: hidden;
+    height: 100%;
   }
 
   *, *::before, *::after {
@@ -37,8 +44,15 @@
     /* Mobile safe-area (notch / home indicator) */
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
-    /* Smooth momentum scrolling on older iOS */
-    -webkit-overflow-scrolling: touch;
+    /* Lock body scroll — all scrolling happens inside the flex-1 message
+       list. Blocking document-level scroll prevents Android Chrome from
+       scrolling the page when keyboard opens (which shifts visualViewport
+       and causes the gap between input bar and keyboard). */
+    overflow: hidden;
+    height: 100%;
+    /* touch-action: manipulation disables double-tap zoom on mobile,
+       removes the 300ms click delay, without disabling normal touch events. */
+    touch-action: manipulation;
   }
 
   /* Allow selection inside text inputs only */

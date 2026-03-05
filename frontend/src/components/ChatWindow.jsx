@@ -129,8 +129,16 @@ export default function ChatWindow({
 
   return (
     <div className="flex flex-col bg-brut-bg dark:bg-mid-bg relative"
-         style={{ height: "var(--app-height, 100vh)" }}
-         onDrop={handleDrop}
+           style={{
+             height: "var(--app-height, 100vh)",
+             // When the soft keyboard opens on Android, the browser scrolls
+             // the document to bring the focused input into view (offsetTop > 0).
+             // --vvp-top tracks visualViewport.offsetTop; translating the
+             // container by that amount snaps it flush against the keyboard so
+             // there is no gap — exactly how WhatsApp handles it.
+             transform: "translateY(var(--vvp-top, 0px))",
+             willChange: "transform",
+           }}
          onDragOver={handleDragOver}
          onDragLeave={handleDragLeave}>
 
@@ -326,15 +334,24 @@ export default function ChatWindow({
 
           {/* Text input */}
           <textarea
-            className="input-field resize-none text-sm font-medium leading-relaxed flex-1
+            className="input-field resize-none font-medium leading-relaxed flex-1
                        overflow-y-auto font-sans"
-            style={{ maxHeight: "5rem", minHeight: "36px" }}
+            style={{
+              maxHeight: "5rem",
+              minHeight: "36px",
+              // iOS Safari zooms in whenever a focused input has font-size < 16px.
+              // That zoom shifts the layout, triggering the very gap bug we're
+              // fixing. Force 16px here — it overrides Tailwind's text-sm (14px)
+              // regardless of specificity order.
+              fontSize: "16px",
+            }}
             rows={1}
-            placeholder={isConnected ? "Message…" : "Waiting for peer…"}
+            placeholder={isConnected ? "Message\u2026" : "Waiting for peer\u2026"}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={!isConnected}
+            inputMode="text"
           />
 
           {/* Send button */}
