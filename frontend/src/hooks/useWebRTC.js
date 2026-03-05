@@ -381,8 +381,11 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
 
     pc.onconnectionstatechange = () => {
       console.log("[WebRTC] Connection state:", pc.connectionState);
-      setIsConnected(pc.connectionState === "connected");
-      if (["disconnected", "failed", "closed"].includes(pc.connectionState)) {
+      if (pc.connectionState === "connected") {
+        setIsConnected(true);
+      } else if (["failed", "closed"].includes(pc.connectionState)) {
+        // "disconnected" is transient — browser retries ICE automatically.
+        // Only mark disconnected on terminal states to avoid false UI flickers.
         setIsConnected(false);
       }
     };
@@ -480,6 +483,11 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
           return;
         }
         if (p.type === "file-end") { assembleFile(); return; }
+        if (p.type === "file-cancel") {
+          console.warn("[DataChannel] Peer cancelled file transfer.");
+          incomingFileRef.current = { name: "", type: "", size: 0, chunks: [], receivedSize: 0, viewOnce: false };
+          return;
+        }
 
         // Peer name
         if (p.type === "peer-hello") {
@@ -530,14 +538,22 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
     // Always fetch fresh TURN credentials before creating the connection
     await ensureFreshIceConfig();
     isPolitePeerRef.current = false; // we are the initiator (impolite)
+    // Set the flag BEFORE createDataChannel so onnegotiationneeded (which fires
+    // async when the channel is created) sees it and skips its own offer — we
+    // are about to create the offer manually below.
+    isNegotiating.current = true;
     const pc = createPeerConnection();
     const dc = pc.createDataChannel("chat", { ordered: true });
     setupDataChannel(dc);
     dataChannelRef.current = dc;
-    const offer = await pc.createOffer();
-    offer.sdp = optimizeOpusSdp(offer.sdp);
-    await pc.setLocalDescription(offer);
-    sendSignal({ type: "offer", roomId, payload: { sdp: pc.localDescription } });
+    try {
+      const offer = await pc.createOffer();
+      offer.sdp = optimizeOpusSdp(offer.sdp);
+      await pc.setLocalDescription(offer);
+      sendSignal({ type: "offer", roomId, payload: { sdp: pc.localDescription } });
+    } finally {
+      isNegotiating.current = false;
+    }
   }, [createPeerConnection, setupDataChannel, roomId, sendSignal, ensureFreshIceConfig]);
 
   // ── Public: Handle signaling ──────────────────────────────────────────────
@@ -606,24 +622,43 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
   const sendFile = useCallback(async (file, viewOnce = false) => {
     const dc = dataChannelRef.current;
     if (!dc || dc.readyState !== "open") return;
-    dc.send(JSON.stringify({
-      type: "file-meta", name: file.name, fileType: file.type,
-      size: file.size, viewOnce: !!viewOnce,
-    }));
-    dc.bufferedAmountLowThreshold = BUFFER_LOW_WATER;
-    const buffer = await file.arrayBuffer();
-    let offset = 0;
-    while (offset < buffer.byteLength) {
-      if (dc.bufferedAmount > BUFFER_HIGH_WATER) {
-        await new Promise((resolve) => {
-          const prev = dc.onbufferedamountlow;
-          dc.onbufferedamountlow = () => { dc.onbufferedamountlow = prev ?? null; resolve(); };
-        });
+    try {
+      dc.send(JSON.stringify({
+        type: "file-meta", name: file.name, fileType: file.type,
+        size: file.size, viewOnce: !!viewOnce,
+      }));
+      dc.bufferedAmountLowThreshold = BUFFER_LOW_WATER;
+      const buffer = await file.arrayBuffer();
+      let offset = 0;
+      while (offset < buffer.byteLength) {
+        // Abort if the channel closed while we were waiting on backpressure
+        if (dc.readyState !== "open") {
+          console.warn("[sendFile] DataChannel closed mid-transfer, aborting");
+          return;
+        }
+        if (dc.bufferedAmount > BUFFER_HIGH_WATER) {
+          await new Promise((resolve) => {
+            const prev = dc.onbufferedamountlow;
+            dc.onbufferedamountlow = () => { dc.onbufferedamountlow = prev ?? null; resolve(); };
+          });
+          // Re-check after waiting
+          if (dc.readyState !== "open") {
+            console.warn("[sendFile] DataChannel closed while draining buffer, aborting");
+            return;
+          }
+        }
+        dc.send(buffer.slice(offset, offset + CHUNK_SIZE));
+        offset += CHUNK_SIZE;
       }
-      dc.send(buffer.slice(offset, offset + CHUNK_SIZE));
-      offset += CHUNK_SIZE;
+      dc.send(JSON.stringify({ type: "file-end" }));
+    } catch (err) {
+      console.error("[sendFile] Transfer failed:", err.message);
+      // Attempt to notify the peer that the transfer was cancelled
+      try {
+        if (dc.readyState === "open") dc.send(JSON.stringify({ type: "file-cancel" }));
+      } catch (_) {}
+      throw err; // re-throw so caller can show an error
     }
-    dc.send(JSON.stringify({ type: "file-end" }));
   }, []);
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -763,7 +798,13 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
   useEffect(() => {
     return () => {
       const s = localStreamRef.current;
-      if (s) s.getTracks().forEach((t) => t.stop());
+      if (s) {
+        // Full audio-chain teardown (mirrors cleanupCall logic)
+        if (s._gateInterval) { try { clearInterval(s._gateInterval); } catch (_) {} }
+        if (s._audioCtx)     { try { s._audioCtx.close();            } catch (_) {} }
+        if (s._rawStream)    { s._rawStream.getTracks().forEach((t) => t.stop()); }
+        s.getTracks().forEach((t) => t.stop());
+      }
       pcRef.current?.close();
     };
   }, []);

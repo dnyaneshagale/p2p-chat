@@ -58,6 +58,7 @@ export default function App() {
   const [messages, setMessages]         = useState([]);
   const [appStatus, setAppStatus]       = useState("waiting");
   const [isConnecting, setIsConnecting] = useState(false);
+  const [joinError, setJoinError]       = useState("");
   // ── Dark mode ─────────────────────────────────────────────────────────────────────────
   const [darkMode, setDarkMode] = useState(
     () => localStorage.getItem("theme") === "dark"
@@ -153,7 +154,7 @@ export default function App() {
         // Fatal: room full or auth failure — tell the user and send them back.
         if (msg2.includes("room is full") || msg2.includes("invalid")) {
           console.error("[Signaling] Fatal error:", msg.message);
-          alert("Could not join room: " + msg.message);
+          setJoinError("Could not join: " + (msg.message || "Unknown error"));
           setIsConnecting(false);
           setRoomId(null);
         } else {
@@ -246,6 +247,7 @@ export default function App() {
     // Hash before touching any state — setRoomId triggers WS open in useSignaling
     const hashed = await hashRoomCode(roomCode);
 
+    setJoinError("");
     setUserName(name);
     setDisplayRoom(roomCode);  // keep original for UI display only
     setMessages([]);
@@ -253,11 +255,10 @@ export default function App() {
     setIsConnecting(true);
     setRoomId(hashed);         // hashed version flows into useSignaling + useWebRTC
 
-    // Delay "join" message slightly to ensure the WS handshake completes
-    setTimeout(() => {
-      joinRoom(hashed);     // name is never sent to the server
-      setIsConnecting(false);
-    }, 600);
+    // joinRoom sets pendingJoin in useSignaling; the WS onopen will replay it
+    // automatically even if the socket hasn't opened yet — no setTimeout needed.
+    joinRoom(hashed);          // name is never sent to the server
+    setIsConnecting(false);
   }, [joinRoom]);
 
   // ── Send text message (optimistic UI) ─────────────────────────────────────
@@ -278,7 +279,12 @@ export default function App() {
   // ── Send file (optimistic UI) ──────────────────────────────────────────────
   // viewOnce: if true the receiver can only see the media once, then it's destroyed
   const handleSendFile = useCallback(async (file, viewOnce = false) => {
-    await sendFile(file, viewOnce);
+    try {
+      await sendFile(file, viewOnce);
+    } catch (err) {
+      console.error("[handleSendFile] Transfer failed:", err.message);
+      return; // don't add a bubble for a failed transfer
+    }
     const url = URL.createObjectURL(file);
     setMessages((prev) => [...prev, {
       id: Date.now(),
@@ -294,7 +300,7 @@ export default function App() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (!roomId) {
-    return <JoinRoom onJoin={handleJoin} isConnecting={isConnecting} darkMode={darkMode} onToggleDark={toggleDark} />;
+    return <JoinRoom onJoin={handleJoin} isConnecting={isConnecting} joinError={joinError} onClearError={() => setJoinError("")} darkMode={darkMode} onToggleDark={toggleDark} />;
   }
 
   // Is any call overlay active?

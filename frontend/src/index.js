@@ -49,6 +49,57 @@ window.addEventListener("orientationchange", () => {
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>
 );
+
+/**
+ * ErrorBoundary — catches any render-phase exception in the tree so the user
+ * sees a friendly message instead of a blank white screen.
+ */
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, message: "" };
+  }
+  static getDerivedStateFromError(err) {
+    return { hasError: true, message: err?.message || "Unknown error" };
+  }
+  componentDidCatch(err, info) {
+    console.error("[ErrorBoundary]", err, info.componentStack);
+  }
+  render() {
+    if (!this.state.hasError) return this.props.children;
+    return (
+      <div style={{
+        minHeight: "100vh", display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center",
+        background: "#0A0A0A", color: "#fff", padding: "1.5rem", textAlign: "center",
+      }}>
+        <div style={{
+          border: "3px solid #FF2D78", padding: "2rem 2.5rem", maxWidth: 400,
+          boxShadow: "4px 4px 0 #FF2D78",
+        }}>
+          <p style={{ fontWeight: 900, fontSize: "1.1rem", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "0.75rem" }}>
+            Something went wrong
+          </p>
+          <p style={{ fontFamily: "monospace", fontSize: "0.8rem", color: "rgba(255,255,255,0.5)", marginBottom: "1.5rem", wordBreak: "break-word" }}>
+            {this.state.message}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            style={{
+              background: "#FFE500", color: "#0A0A0A", border: "none", padding: "0.6rem 1.5rem",
+              fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.1em",
+              cursor: "pointer", fontSize: "0.8rem",
+            }}
+          >
+            Reload App
+          </button>
+        </div>
+      </div>
+    );
+  }
+}

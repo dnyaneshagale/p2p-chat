@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Zap, Shuffle, AlertTriangle, ArrowRight, Loader2, Shield,
   Sun, Moon, Lock, Eye, Phone, ChevronDown, CornerUpLeft,
@@ -68,15 +68,21 @@ const STEPS = [
 ];
 
 // ── Component ──────────────────────────────────────────────────────────────
-export default function JoinRoom({ onJoin, isConnecting, darkMode, onToggleDark }) {
+export default function JoinRoom({ onJoin, isConnecting, joinError, onClearError, darkMode, onToggleDark }) {
   const [userName, setUserName] = useState("");
   const [roomId, setRoomId]     = useState("");
   const [error, setError]       = useState("");
   const nameInputRef = useRef(null);
 
+  // Sync server-side errors into local error state so they show in the same slot
+  useEffect(() => {
+    if (joinError) setError(joinError);
+  }, [joinError]);
+
   const handleSubmit = (e) => {
     e.preventDefault();
     setError("");
+    onClearError?.();
     const name = userName.trim();
     const room = roomId.trim();
     if (!name) { setError("NAME IS REQUIRED."); return; }
