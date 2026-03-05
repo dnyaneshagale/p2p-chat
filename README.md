@@ -258,8 +258,3 @@ chatapp/
 | View Once bypass | Blob URLs are revoked immediately on viewer close — no re-open possible. |
 | File retention | All media is stored only in browser memory as blob URLs, never uploaded anywhere. |
 
----
-
-## License
-
-MIT
