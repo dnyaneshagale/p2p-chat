@@ -44,6 +44,10 @@ async function fetchIceConfig() {
 function createAudioProcessingChain(rawStream) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+    // iOS Safari (and some Android WebViews) start AudioContext in "suspended" state.
+    // If we don't resume it here the entire processing chain outputs silence —
+    // the peer receives an active-but-silent audio track instead of voice.
+    ctx.resume().catch(() => {});
     const source = ctx.createMediaStreamSource(rawStream);
 
     // ── 1. High-pass: aggressively cut below 100 Hz ─────────────────────
@@ -131,6 +135,14 @@ function createAudioProcessingChain(rawStream) {
     processed._audioCtx = ctx;
     processed._rawStream = rawStream;
     processed._gateInterval = gateInterval;
+
+    // Re-resume the AudioContext whenever the tab becomes visible again.
+    // Mobile browsers (iOS/Android) suspend it when the app goes to background.
+    const resumeAudioCtx = () => {
+      if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", resumeAudioCtx);
+    processed._resumeListener = resumeAudioCtx;
 
     console.log("[Audio] Chain: highpass→lowpass→gate→presence→compressor");
     return processed;
@@ -308,6 +320,10 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
     }
     const stream = localStreamRef.current;
     if (stream) {
+      // Remove visibilitychange listener before closing context
+      if (stream._resumeListener) {
+        try { document.removeEventListener("visibilitychange", stream._resumeListener); } catch (_) {}
+      }
       // Close the Web Audio processing context + noise gate timer
       if (stream._gateInterval) {
         try { clearInterval(stream._gateInterval); } catch (_) {}
@@ -800,9 +816,10 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
       const s = localStreamRef.current;
       if (s) {
         // Full audio-chain teardown (mirrors cleanupCall logic)
-        if (s._gateInterval) { try { clearInterval(s._gateInterval); } catch (_) {} }
-        if (s._audioCtx)     { try { s._audioCtx.close();            } catch (_) {} }
-        if (s._rawStream)    { s._rawStream.getTracks().forEach((t) => t.stop()); }
+        if (s._resumeListener) { try { document.removeEventListener("visibilitychange", s._resumeListener); } catch (_) {} }
+        if (s._gateInterval)   { try { clearInterval(s._gateInterval);                                       } catch (_) {} }
+        if (s._audioCtx)       { try { s._audioCtx.close();                                                  } catch (_) {} }
+        if (s._rawStream)      { s._rawStream.getTracks().forEach((t) => t.stop()); }
         s.getTracks().forEach((t) => t.stop());
       }
       pcRef.current?.close();

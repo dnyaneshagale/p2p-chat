@@ -77,12 +77,20 @@ export default function CallScreen({
     }
   }, [localStream, isSwapped]);
 
-  // Attach remote video — re-run when swap state changes
+  // Attach remote video — video tracks only.
+  // The full remoteStream (including audio) is given to the dedicated <audio> element.
+  // Passing audio to the <video> element as well creates a dual-audio conflict on
+  // Safari/iOS where the browser may suppress one or both audio outputs.
   useEffect(() => {
     const el = remoteVideoRef.current;
-    if (el) {
-      el.srcObject = remoteStream || null;
-      if (remoteStream) el.play().catch(() => {});
+    if (!el) return;
+    if (remoteStream) {
+      const vTracks = remoteStream.getVideoTracks();
+      const videoOnly = vTracks.length ? new MediaStream(vTracks) : null;
+      el.srcObject = videoOnly;
+      if (videoOnly) el.play().catch(() => {});
+    } else {
+      el.srcObject = null;
     }
   }, [remoteStream, isSwapped]);
 
