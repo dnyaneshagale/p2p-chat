@@ -41,6 +41,8 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
 
   const onPointerDown = useCallback((e) => {
     if (e.button !== undefined && e.button !== 0) return;
+    // Don't hijack clicks on interactive elements inside the bubble (buttons, links)
+    if (e.target.closest("button, a")) return;
     dragStart.current = { clientX: e.clientX };
     threshHit.current = false;
     setDragging(true);
