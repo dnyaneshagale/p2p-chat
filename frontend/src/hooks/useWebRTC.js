@@ -50,27 +50,30 @@ function createAudioProcessingChain(rawStream) {
     ctx.resume().catch(() => {});
     const source = ctx.createMediaStreamSource(rawStream);
 
-    // ── 1. High-pass: aggressively cut below 100 Hz ─────────────────────
-    // Removes room rumble, AC hum, wind, handling noise
+    // ── 1. High-pass: cut below 80 Hz ──────────────────────────────────
+    // 80 Hz preserves male voice fundamentals (~85 Hz) while still
+    // removing room rumble, AC hum, wind, and mic handling noise.
     const highpass = ctx.createBiquadFilter();
     highpass.type = "highpass";
-    highpass.frequency.value = 100;
-    highpass.Q.value = 1.0;
+    highpass.frequency.value = 80;
+    highpass.Q.value = 0.9;
 
-    // ── 2. Low-pass: cut above 12 kHz ───────────────────────────────────
-    // Removes high-frequency hiss, electronic buzzing
+    // ── 2. Low-pass: cut above 16 kHz ───────────────────────────────────
+    // 16 kHz captures full vocal brilliance and consonant clarity while
+    // still removing ultrasonic electronic noise above Opus's useful range.
     const lowpass = ctx.createBiquadFilter();
     lowpass.type = "lowpass";
-    lowpass.frequency.value = 12000;
+    lowpass.frequency.value = 16000;
     lowpass.Q.value = 0.7;
 
-    // ── 3. Voice presence boost: +3 dB at 2.5 kHz ──────────────────────
-    // Makes speech cut through without raising overall level (and noise)
+    // ── 3. Voice presence boost: +4 dB at 3 kHz ──────────────────────
+    // 3 kHz is the ear's peak sensitivity — boosts consonant clarity and
+    // speech intelligibility without raising background level.
     const presence = ctx.createBiquadFilter();
     presence.type = "peaking";
-    presence.frequency.value = 2500;
+    presence.frequency.value = 3000;
     presence.Q.value = 1.2;
-    presence.gain.value = 3;
+    presence.gain.value = 4;
 
     // ── 4. Noise gate via analyser + gain automation ────────────────────
     // When RMS drops below threshold → mute. Voice resumes → unmute.
@@ -83,10 +86,10 @@ function createAudioProcessingChain(rawStream) {
     gateGain.gain.value = 0; // start closed
 
     const dataArray = new Float32Array(analyser.fftSize);
-    const GATE_OPEN_DB  = -50;  // open when signal rises above this
-    const GATE_CLOSE_DB = -58;  // close when drops below (hysteresis prevents chatter)
+    const GATE_OPEN_DB  = -45;  // open when signal rises above this
+    const GATE_CLOSE_DB = -55;  // close when drops below (hysteresis prevents chatter)
     const ATTACK  = 0.008;      // 8 ms open — fast so words aren't clipped
-    const RELEASE = 0.12;       // 120 ms close — smooth fade, no abrupt chop
+    const RELEASE = 0.15;       // 150 ms close — smooth tail, preserves word endings
     let gateOpen = false;
 
     const gateInterval = setInterval(() => {
@@ -108,13 +111,13 @@ function createAudioProcessingChain(rawStream) {
       }
     }, 30); // ~33 Hz polling
 
-    // ── 5. Light compressor (after gate) — smooths volume peaks ─────────
+    // ── 5. Voice compressor (after gate) — consistent levels ──────────
     const compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -20;  // only compress loud peaks
-    compressor.knee.value = 10;
-    compressor.ratio.value = 3;
-    compressor.attack.value = 0.003;
-    compressor.release.value = 0.15;
+    compressor.threshold.value = -18;  // engage slightly earlier for consistent voice
+    compressor.knee.value = 8;
+    compressor.ratio.value = 4;        // 4:1 — assertive but natural-sounding
+    compressor.attack.value = 0.002;   // 2 ms — catches loud transients quickly
+    compressor.release.value = 0.20;   // 200 ms — smooth recovery, no pumping
 
     // Chain: mic → highpass → lowpass → analyser → gate → presence → compressor → out
     source.connect(highpass);
@@ -163,12 +166,15 @@ function optimizeOpusSdp(sdp) {
 
   // Desired Opus parameters
   const opusParams = {
-    minptime:                 "10",
-    useinbandfec:             "1",     // Forward Error Correction — recovers lost packets
-    usedtx:                   "0",     // DTX off — prevents silence detection from muting audio
-    maxaveragebitrate:        "64000", // 64 kbps — high quality mono voice
-    stereo:                   "0",     // Mono — better quality per bit for voice
-    cbr:                      "0",     // VBR — adapts quality to content
+    minptime:                  "10",
+    maxptime:                  "20",     // 20 ms packets — best latency/quality tradeoff
+    useinbandfec:              "1",      // FEC — recovers lost packets without retransmit
+    usedtx:                    "0",      // DTX off — no silence-detection dropouts
+    maxaveragebitrate:         "128000", // 128 kbps — HD voice (up from 64 kbps)
+    "sprop-maxcapturerate":    "48000",  // tell remote we capture at 48 kHz
+    maxplaybackrate:           "48000",  // request 48 kHz playback (Opus wideband)
+    stereo:                    "0",      // Mono — better quality per bit for voice
+    cbr:                       "0",      // VBR — adapts quality to content
   };
 
   const fmtpRegex = new RegExp(`a=fmtp:${pt} (.+)`);
@@ -204,10 +210,55 @@ function tuneAudioSenders(pc) {
     if (sender.track?.kind !== "audio") return;
     try {
       const params = sender.getParameters();
-      // Only modify existing encodings — never create new ones
       if (!params.encodings?.length) return;
-      params.encodings[0].maxBitrate = 64_000;        // 64 kbps
-      params.encodings[0].priority = "high";
+      params.encodings[0].maxBitrate      = 128_000; // 128 kbps — matches Opus SDP
+      params.encodings[0].priority        = "high";
+      params.encodings[0].networkPriority = "high";
+      sender.setParameters(params).catch(() => {});
+    } catch (_) {}
+  });
+}
+
+/**
+ * Prefer VP9 over VP8 for video transceivers using the standards-based
+ * RTCRtpTransceiver.setCodecPreferences API. VP9 delivers ~50% better
+ * compression than VP8 at the same quality — sharper video on any bitrate.
+ * Must be called after addTrack() but before createOffer/createAnswer.
+ */
+function applyVideoCodecPreferences(pc) {
+  if (!pc || typeof RTCRtpReceiver.getCapabilities !== "function") return;
+  try {
+    const codecs = RTCRtpReceiver.getCapabilities("video")?.codecs ?? [];
+    if (!codecs.length) return;
+    // Sort: VP9 first (superior compression), VP8 fallback, then rest
+    const sorted = [
+      ...codecs.filter((c) => c.mimeType === "video/VP9"),
+      ...codecs.filter((c) => c.mimeType === "video/VP8"),
+      ...codecs.filter((c) => !["video/VP9", "video/VP8"].includes(c.mimeType)),
+    ];
+    if (!sorted.length) return;
+    pc.getTransceivers().forEach((tc) => {
+      try {
+        if (tc.sender.track?.kind === "video") tc.setCodecPreferences(sorted);
+      } catch (_) {}
+    });
+  } catch (_) {}
+}
+
+/**
+ * Set video sender max bitrate and priority for HD quality.
+ * 2.5 Mbps gives clean 720p@30fps; the browser adapts down on poor links.
+ */
+function tuneVideoSenders(pc) {
+  if (!pc) return;
+  pc.getSenders().forEach((sender) => {
+    if (sender.track?.kind !== "video") return;
+    try {
+      const params = sender.getParameters();
+      if (!params.encodings?.length) return;
+      params.encodings[0].maxBitrate      = 2_500_000; // 2.5 Mbps — HD 720p
+      params.encodings[0].maxFramerate    = 30;
+      params.encodings[0].priority        = "high";
       params.encodings[0].networkPriority = "high";
       sender.setParameters(params).catch(() => {});
     } catch (_) {}
@@ -291,6 +342,10 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
         echoCancellation:  { ideal: true },
         noiseSuppression:  { ideal: true },
         autoGainControl:   { ideal: true },
+        channelCount:      { ideal: 1 },      // mono — better Opus quality per bit
+        sampleRate:        { ideal: 48000 },  // 48 kHz — Opus native sample rate
+        sampleSize:        { ideal: 16 },
+        latency:           { ideal: 0.01 },   // 10 ms capture latency
         // Chrome-specific advanced noise handling (ignored by other browsers)
         googNoiseSuppression:  { ideal: true },
         googNoiseSuppression2: { ideal: true },
@@ -301,8 +356,11 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
     };
     if (type === "video") {
       constraints.video = {
-        width: { ideal: 1280 }, height: { ideal: 720 },
-        frameRate: { ideal: 30 }, facingMode: "user",
+        width:       { min: 640, ideal: 1280 },
+        height:      { min: 480, ideal: 720  },
+        frameRate:   { min: 15,  ideal: 30   },
+        aspectRatio: { ideal: 16 / 9 },
+        facingMode:  "user",
       };
     }
     const rawStream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -445,12 +503,14 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
       try {
         if (isNegotiating.current) return;
         isNegotiating.current = true;
+        // Apply VP9 preference on video transceivers before generating the offer
+        applyVideoCodecPreferences(pc);
         const offer = await pc.createOffer();
         offer.sdp = optimizeOpusSdp(offer.sdp);
         await pc.setLocalDescription(offer);
         sendSignal({ type: "offer", roomId, payload: { sdp: pc.localDescription } });
-        // Tune audio senders after renegotiation
-        setTimeout(() => tuneAudioSenders(pc), 500);
+        // Tune audio + video sender bitrates after renegotiation
+        setTimeout(() => { tuneAudioSenders(pc); tuneVideoSenders(pc); }, 500);
       } catch (err) {
         console.error("[WebRTC] Renegotiation failed:", err);
       } finally {
@@ -610,12 +670,14 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
           const senderIds = new Set(pc.getSenders().map((s) => s.track?.id).filter(Boolean));
           ls.getTracks().forEach((t) => { if (!senderIds.has(t.id)) pc.addTrack(t, ls); });
         }
+        // Prefer VP9 before generating the answer
+        applyVideoCodecPreferences(pc);
         const answer = await pc.createAnswer();
         answer.sdp = optimizeOpusSdp(answer.sdp);
         await pc.setLocalDescription(answer);
         sendSignal({ type: "answer", roomId, payload: { sdp: pc.localDescription } });
-        // Tune audio senders after answer is set
-        setTimeout(() => tuneAudioSenders(pc), 500);
+        // Tune audio + video sender bitrates after the answer
+        setTimeout(() => { tuneAudioSenders(pc); tuneVideoSenders(pc); }, 500);
         break;
       }
       case "answer": {
@@ -753,8 +815,10 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
       const pc = pcRef.current;
       if (pc) {
         stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-        // Tune audio bitrate + priority after adding tracks
-        setTimeout(() => tuneAudioSenders(pc), 500);
+        // Prefer VP9 for video transceivers before the renegotiation offer fires
+        applyVideoCodecPreferences(pc);
+        // Tune audio + video bitrates after the connection becomes active
+        setTimeout(() => { tuneAudioSenders(pc); tuneVideoSenders(pc); }, 500);
       }
       setIsMicOn(true);
       setIsCameraOn((type || callTypeRef.current) === "video");
@@ -803,12 +867,23 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
     if (callStateRef.current !== "active" || callTypeRef.current === "video") return;
     try {
       const vs = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+        video: {
+          width:       { min: 640, ideal: 1280 },
+          height:      { min: 480, ideal: 720  },
+          frameRate:   { min: 15,  ideal: 30   },
+          aspectRatio: { ideal: 16 / 9 },
+          facingMode:  "user",
+        },
       });
       const vt = vs.getVideoTracks()[0];
       const pc = pcRef.current;
       const stream = localStreamRef.current;
-      if (pc && stream) { stream.addTrack(vt); pc.addTrack(vt, stream); }
+      if (pc && stream) {
+        stream.addTrack(vt);
+        pc.addTrack(vt, stream);
+        applyVideoCodecPreferences(pc);
+        setTimeout(() => tuneVideoSenders(pc), 500);
+      }
       callTypeRef.current = "video";
       setCallType("video");
       setIsCameraOn(true);
