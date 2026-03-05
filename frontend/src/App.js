@@ -58,7 +58,15 @@ export default function App() {
   const [messages, setMessages]         = useState([]);
   const [appStatus, setAppStatus]       = useState("waiting");
   const [isConnecting, setIsConnecting] = useState(false);
-
+  // ── Dark mode ─────────────────────────────────────────────────────────────────────────
+  const [darkMode, setDarkMode] = useState(
+    () => localStorage.getItem("theme") === "dark"
+  );
+  const toggleDark = useCallback(() => setDarkMode((d) => !d), []);
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+    localStorage.setItem("theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
   // ── Refs that break circular dependency ───────────────────────────────────
   // webrtcRef: updated each render with latest webrtcActions so the
   // signaling handler always calls the current, non-stale functions.
@@ -286,7 +294,7 @@ export default function App() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (!roomId) {
-    return <JoinRoom onJoin={handleJoin} isConnecting={isConnecting} />;
+    return <JoinRoom onJoin={handleJoin} isConnecting={isConnecting} darkMode={darkMode} onToggleDark={toggleDark} />;
   }
 
   // Is any call overlay active?
@@ -306,6 +314,8 @@ export default function App() {
         onStartVideoCall={() => initiateCall("video")}
         onEndCall={endCall}
         onLeave={handleLeave}
+        darkMode={darkMode}
+        onToggleDark={toggleDark}
         callState={callState}
         callType={callType}
         status={appStatus}

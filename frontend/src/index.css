@@ -14,6 +14,8 @@
     scroll-behavior: smooth;
     /* Fallback: set --app-height before JS runs */
     --app-height: 100vh;
+    /* Dot pattern color (changes with theme) */
+    --dot-color: rgba(10, 10, 10, 0.07);
   }
 
   *, *::before, *::after {
@@ -170,4 +172,74 @@
   }
 
 }
+/* ═══════════════════════════════════════════════════════════════════════
+   MIDNIGHT BLUE DARK MODE
+   ═══════════════════════════════════════════════════════════════════════ */
+html.dark {
+  --dot-color: rgba(221, 230, 240, 0.05);
+}
 
+html.dark body {
+  background-color: #0D1B2A;
+  color: #DDE6F0;
+}
+
+/* Scrollbar */
+@media (min-width: 640px) {
+  html.dark ::-webkit-scrollbar-track  { background: #0D1B2A; border-left-color: #2A3F58; }
+  html.dark ::-webkit-scrollbar-thumb  { background: #2A3F58; border-color: #0D1B2A; }
+  html.dark ::-webkit-scrollbar-thumb:hover { background: #FFE500; }
+}
+
+/* Cards */
+html.dark .card {
+  background: #152030;
+  border-color: #2A3F58;
+  box-shadow: 4px 4px 0px #2A3F58;
+}
+@media (min-width: 640px) {
+  html.dark .card { box-shadow: 6px 6px 0px #2A3F58; }
+}
+
+/* Input fields */
+html.dark .input-field {
+  background: #1B2A3B;
+  color: #DDE6F0;
+  border-color: #2A3F58;
+  box-shadow: 2px 2px 0px #2A3F58;
+}
+html.dark .input-field::placeholder { color: rgba(221, 230, 240, 0.30); }
+html.dark .input-field:focus { box-shadow: 3px 3px 0px #2A3F58; }
+@media (min-width: 640px) {
+  html.dark .input-field { box-shadow: 3px 3px 0px #2A3F58; }
+  html.dark .input-field:focus { box-shadow: 5px 5px 0px #2A3F58; }
+}
+
+/* Peer message bubble */
+html.dark .bubble-peer {
+  background: #1B2A3B;
+  color: #DDE6F0;
+  border-color: #2A3F58;
+  box-shadow: 2px 2px 0px #2A3F58;
+}
+
+/* Ghost / secondary button */
+html.dark .btn-ghost {
+  background: #152030;
+  color: #DDE6F0;
+  border-color: #2A3F58;
+  box-shadow: 2px 2px 0px #2A3F58;
+}
+html.dark .btn-ghost:hover:not(:disabled) {
+  background: #1B2A3B;
+  box-shadow: 4px 4px 0px #2A3F58;
+}
+html.dark .btn-ghost:active:not(:disabled) {
+  box-shadow: 0px 0px 0px #2A3F58;
+}
+
+/* Labels */
+html.dark .brut-label { color: rgba(221, 230, 240, 0.45); }
+
+/* Focus ring */
+html.dark *:focus-visible { outline-color: #DDE6F0; }

@@ -88,7 +88,7 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
     if (viewOnce && !isSelf && voState === "expired") {
       return (
         <div className="mt-2 flex items-center gap-2 px-4 py-3
-                        bg-brut-black/10 border-3 border-brut-black/30
+                        bg-brut-black/10 dark:bg-white/5 border-3 border-brut-black/30 dark:border-mid-border
                         font-mono text-xs font-black uppercase tracking-wider opacity-50">
           <Lock size={13} strokeWidth={2.5} />
           <span>VIEWED — MEDIA DESTROYED</span>
@@ -159,7 +159,7 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
     // ── Audio ─────────────────────────────────────────────────────────────
     if (fileType?.startsWith("audio/")) {
       return (
-        <div className="mt-2 flex items-center gap-2 p-2 border-3 border-brut-black"
+        <div className="mt-2 flex items-center gap-2 p-2 border-3 border-brut-black dark:border-mid-border"
              style={{ boxShadow: "2px 2px 0px #0A0A0A" }}>
           <Music2 size={18} strokeWidth={2} className="shrink-0" />
           <audio src={url} controls controlsList="nodownload" className="w-full h-8" />
@@ -174,8 +174,8 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
         download={!viewOnce ? fileName : undefined}
         onClick={viewOnce && !isSelf ? (e) => e.preventDefault() : undefined}
         className="flex items-center gap-2.5 mt-2.5 text-sm font-bold
-                   border-3 border-brut-black px-3 py-2
-                   hover:bg-brut-yellow transition-colors"
+                   border-3 border-brut-black dark:border-mid-border px-3 py-2
+                   hover:bg-brut-yellow dark:hover:bg-mid-surface transition-colors"
         style={{ boxShadow: "2px 2px 0px #0A0A0A" }}
       >
         <Paperclip size={17} strokeWidth={2} className="shrink-0" />
@@ -197,7 +197,7 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
     <div className={`flex flex-col mb-2.5 sm:mb-4 animate-slide-up ${isSelf ? "items-end" : "items-start"}`}>
       {/* Sender name tag */}
       <span className="text-[10px] font-black uppercase tracking-widest
-                       text-brut-black/50 mb-1 mx-1">
+                       text-brut-black/50 dark:text-mid-muted mb-1 mx-1">
         {isSelf ? "YOU" : (from || "PEER").toUpperCase()}
       </span>
 
@@ -218,7 +218,7 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
         {/* Reply quote */}
         {replyTo && (
           <div className="text-xs px-3 py-1.5 mb-2 font-mono
-                          bg-brut-black/10 border-l-4 border-brut-black">
+                          bg-brut-black/10 dark:bg-white/10 border-l-4 border-brut-black dark:border-mid-border">
             <span className="font-black uppercase text-[10px]">{replyTo.from}: </span>
             <span className="opacity-60">{replyTo.text || "Attachment"}</span>
           </div>
@@ -242,7 +242,7 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
                        sm:opacity-0 sm:group-hover:opacity-50 hover:!opacity-100
                        opacity-40 active:opacity-100 active:text-brut-pink
                        transition-all duration-100 rounded-md
-                       active:bg-brut-black/5"
+                       active:bg-brut-black/5 dark:active:bg-white/5"
           >
             <CornerUpLeft size={12} strokeWidth={2.5} className="inline mr-0.5" /> REPLY
           </button>

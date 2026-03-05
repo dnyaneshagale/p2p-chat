@@ -1,11 +1,11 @@
 import React, { useState } from "react";
-import { Zap, Shuffle, AlertTriangle, ArrowRight, Loader2, Shield } from "lucide-react";
+import { Zap, Shuffle, AlertTriangle, ArrowRight, Loader2, Shield, Sun, Moon } from "lucide-react";
 
 /**
  * JoinRoom — Neo Brutalist landing screen.
  * Users enter their display name and a shared room code to connect.
  */
-export default function JoinRoom({ onJoin, isConnecting }) {
+export default function JoinRoom({ onJoin, isConnecting, darkMode, onToggleDark }) {
   const [userName, setUserName] = useState("");
   const [roomId, setRoomId]     = useState("");
   const [error, setError]       = useState("");
@@ -30,25 +30,37 @@ export default function JoinRoom({ onJoin, isConnecting }) {
   };
 
   return (
-    <div className="bg-brut-bg flex items-center justify-center p-2 xs:p-3 sm:p-4"
+    <div className="bg-brut-bg dark:bg-mid-bg flex items-center justify-center p-2 xs:p-3 sm:p-4"
          style={{ minHeight: "var(--app-height, 100vh)",
-                  backgroundImage: "radial-gradient(#0A0A0A22 1px, transparent 1px)", backgroundSize: "20px 20px" }}>
+                  backgroundImage: "radial-gradient(var(--dot-color) 1px, transparent 1px)", backgroundSize: "20px 20px" }}>
 
       <div className="w-full max-w-md animate-fade-in">
 
         {/* ── Header stamp ── */}
         <div className="bg-brut-black text-brut-yellow px-3 xs:px-4 sm:px-6 py-2.5 xs:py-3 sm:py-4 border-3 border-brut-black"
              style={{ boxShadow: "4px 4px 0px #FFE500" }}>
-          <div className="flex items-center gap-2 xs:gap-3">
-            <Zap size={24} className="text-brut-yellow shrink-0 xs:w-[28px] xs:h-[28px] sm:w-[34px] sm:h-[34px]" strokeWidth={2.5} />
-            <div>
-              <h1 className="text-lg xs:text-xl sm:text-3xl font-black uppercase tracking-tighter leading-none">
-                P2P CHAT
-              </h1>
-              <p className="text-brut-yellow/60 text-[9px] xs:text-[10px] sm:text-xs font-mono uppercase tracking-widest mt-0.5">
-                Direct · Encrypted · Zero Relay
-              </p>
+          <div className="flex items-center justify-between gap-2 xs:gap-3">
+            <div className="flex items-center gap-2 xs:gap-3">
+              <Zap size={24} className="text-brut-yellow shrink-0 xs:w-[28px] xs:h-[28px] sm:w-[34px] sm:h-[34px]" strokeWidth={2.5} />
+              <div>
+                <h1 className="text-lg xs:text-xl sm:text-3xl font-black uppercase tracking-tighter leading-none">
+                  P2P CHAT
+                </h1>
+                <p className="text-brut-yellow/60 text-[9px] xs:text-[10px] sm:text-xs font-mono uppercase tracking-widest mt-0.5">
+                  Direct · Encrypted · Zero Relay
+                </p>
+              </div>
             </div>
+            <button
+              onClick={onToggleDark}
+              title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+              aria-label="Toggle theme"
+              className="p-2 text-brut-yellow/50 hover:text-brut-yellow
+                         border border-brut-yellow/20 hover:border-brut-yellow/50
+                         active:scale-95 transition-all duration-100 rounded-sm"
+            >
+              {darkMode ? <Sun size={16} strokeWidth={2.5} /> : <Moon size={16} strokeWidth={2.5} />}
+            </button>
           </div>
         </div>
 
@@ -95,7 +107,7 @@ export default function JoinRoom({ onJoin, isConnecting }) {
                   <Shuffle size={14} strokeWidth={2.5} /> RNG
                 </button>
               </div>
-              <p className="text-xs font-mono text-brut-black/50 mt-2 uppercase tracking-wide">
+              <p className="text-xs font-mono text-brut-black/50 dark:text-mid-muted mt-2 uppercase tracking-wide">
                 ↳ Share this code with your peer
               </p>
             </div>
@@ -125,9 +137,9 @@ export default function JoinRoom({ onJoin, isConnecting }) {
           </form>
 
           {/* Footer */}
-          <div className="mt-6 pt-4 border-t-3 border-brut-black/20 flex items-center gap-3">
-            <Shield size={13} className="text-brut-black/40 shrink-0" strokeWidth={2} />
-            <p className="text-xs font-mono text-brut-black/40 uppercase tracking-wider">
+          <div className="mt-6 pt-4 border-t-3 border-brut-black/20 dark:border-mid-border flex items-center gap-3">
+            <Shield size={13} className="text-brut-black/40 dark:text-mid-muted shrink-0" strokeWidth={2} />
+            <p className="text-xs font-mono text-brut-black/40 dark:text-mid-muted uppercase tracking-wider">
               No server storage · WebRTC P2P · E2E Encrypted
             </p>
           </div>

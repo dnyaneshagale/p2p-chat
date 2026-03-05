@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Phone, Video, PhoneOff, Eye, EyeOff, Paperclip, Send, X, Upload, Zap, LogOut } from "lucide-react";
+import { Phone, Video, PhoneOff, Eye, EyeOff, Paperclip, Send, X, Upload, Zap, LogOut, Sun, Moon } from "lucide-react";
 import MessageBubble from "./MessageBubble";
 import MediaViewer from "./MediaViewer";
 
@@ -26,6 +26,8 @@ import MediaViewer from "./MediaViewer";
  *   @param {function} onStartVideoCall
  *   @param {function} onEndCall
  *   @param {function} onLeave          - leaves the session entirely
+ *   @param {boolean}  darkMode
+ *   @param {function} onToggleDark
  *   @param {string}   callState        - "idle" | "outgoing-ringing" | ...
  *   @param {string}   callType         - "voice" | "video" | null
  *   @param {string}   status           - "waiting" | "connected" | "peer-left"
@@ -42,6 +44,8 @@ export default function ChatWindow({
   onStartVideoCall,
   onEndCall,
   onLeave,
+  darkMode,
+  onToggleDark,
   callState,
   callType,
   status,
@@ -110,15 +114,15 @@ export default function ChatWindow({
   const s = statusConfig[status] ?? statusConfig.waiting;
 
   return (
-    <div className="flex flex-col bg-brut-bg relative"
+    <div className="flex flex-col bg-brut-bg dark:bg-mid-bg relative"
          style={{ height: "var(--app-height, 100vh)" }}
          onDrop={handleDrop}
          onDragOver={handleDragOver}
          onDragLeave={handleDragLeave}>
 
       {/* ── Top bar ── */}
-      <header className="bg-brut-black flex items-center justify-between px-1.5 xs:px-2 sm:px-5 py-1.5 xs:py-2 sm:py-3
-                         border-b-3 border-brut-black shrink-0"
+      <header className="bg-brut-black dark:bg-mid-nav flex items-center justify-between px-1.5 xs:px-2 sm:px-5 py-1.5 xs:py-2 sm:py-3
+                         border-b-3 border-brut-black dark:border-mid-border shrink-0"
              style={{ paddingTop: "max(0.375rem, env(safe-area-inset-top))" }}>
         {/* Room info */}
         <div className="flex items-center gap-1 xs:gap-1.5 sm:gap-4 min-w-0">
@@ -154,9 +158,20 @@ export default function ChatWindow({
           </div>
         </div>
 
-        {/* Call buttons — voice + video (WhatsApp-style) */}
+        {/* Call buttons — voice + video (WhatsApp-style) + theme toggle */}
         {isConnected && callState === "idle" && (
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button
+              onClick={onToggleDark}
+              title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+              aria-label="Toggle theme"
+              className="w-10 h-10 sm:w-auto sm:h-auto sm:p-2.5 flex items-center justify-center
+                         bg-white/10 border-2 border-white/20 text-white/60
+                         active:bg-brut-yellow/20 active:border-brut-yellow/40 active:text-brut-yellow active:scale-95
+                         transition-all duration-100 rounded-lg sm:rounded-sm"
+            >
+              {darkMode ? <Sun size={16} strokeWidth={2.5} /> : <Moon size={16} strokeWidth={2.5} />}
+            </button>
             <button
               onClick={onStartVoiceCall}
               className="w-10 h-10 sm:w-auto sm:h-auto sm:p-2.5 flex items-center justify-center
@@ -182,22 +197,48 @@ export default function ChatWindow({
           </div>
         )}
         {isConnected && callState !== "idle" && (
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button
+              onClick={onToggleDark}
+              title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+              aria-label="Toggle theme"
+              className="w-10 h-10 sm:w-auto sm:h-auto sm:p-2.5 flex items-center justify-center
+                         bg-white/10 border-2 border-white/20 text-white/60
+                         active:bg-brut-yellow/20 active:scale-95
+                         transition-all duration-100 rounded-lg sm:rounded-sm"
+            >
+              {darkMode ? <Sun size={16} strokeWidth={2.5} /> : <Moon size={16} strokeWidth={2.5} />}
+            </button>
+            <button
+              onClick={onEndCall}
+              className="px-3 py-2 sm:px-3 sm:py-2 text-xs sm:text-sm bg-brut-pink text-white
+                         border-2 border-white/20 font-black uppercase tracking-wider
+                         flex items-center gap-1.5 shrink-0 active:scale-95 active:opacity-90
+                         transition-all duration-100 rounded-lg sm:rounded-sm"
+            >
+              <PhoneOff size={14} strokeWidth={2.5} />
+              <span className="text-[10px] sm:text-sm">END</span>
+            </button>
+          </div>
+        )}
+        {!isConnected && (
           <button
-            onClick={onEndCall}
-            className="px-3 py-2 sm:px-3 sm:py-2 text-xs sm:text-sm bg-brut-pink text-white
-                       border-2 border-white/20 font-black uppercase tracking-wider
-                       flex items-center gap-1.5 shrink-0 active:scale-95 active:opacity-90
+            onClick={onToggleDark}
+            title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            aria-label="Toggle theme"
+            className="w-10 h-10 sm:w-auto sm:h-auto sm:p-2.5 flex items-center justify-center
+                       bg-white/10 border-2 border-white/20 text-white/60
+                       active:bg-brut-yellow/20 active:scale-95
                        transition-all duration-100 rounded-lg sm:rounded-sm"
           >
-            <PhoneOff size={14} strokeWidth={2.5} />
-            <span className="text-[10px] sm:text-sm">END</span>
+            {darkMode ? <Sun size={16} strokeWidth={2.5} /> : <Moon size={16} strokeWidth={2.5} />}
           </button>
         )}
       </header>
 
       {/* ── Message list ── */}
       <main className="flex-1 overflow-y-auto overscroll-y-contain px-2.5 sm:px-4 py-3 sm:py-5 space-y-0.5 sm:space-y-1"
-            style={{ backgroundImage: "radial-gradient(#0A0A0A11 1px, transparent 1px)", backgroundSize: "18px 18px",
+            style={{ backgroundImage: "radial-gradient(var(--dot-color) 1px, transparent 1px)", backgroundSize: "18px 18px",
                      WebkitOverflowScrolling: "touch" }}>
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-4">
@@ -206,7 +247,7 @@ export default function ChatWindow({
                  style={{ boxShadow: "4px 4px 0px #0A0A0A" }}>
               <Zap size={30} className="text-brut-black sm:w-[36px] sm:h-[36px]" strokeWidth={2.5} />
             </div>
-            <p className="font-black uppercase tracking-wider text-brut-black/40 text-xs sm:text-sm text-center px-4">
+            <p className="font-black uppercase tracking-wider text-brut-black/40 dark:text-mid-muted text-xs sm:text-sm text-center px-4">
               {isConnected ? "CHANNEL OPEN — SAY SOMETHING" : "WAITING FOR PEER TO JOIN…"}
             </p>
           </div>
@@ -255,7 +296,7 @@ export default function ChatWindow({
       )}
 
       {/* ── Input bar ── */}
-      <footer className="bg-brut-bg border-t-3 border-brut-black px-1.5 xs:px-2 sm:px-4 py-1.5 xs:py-2 sm:py-3 shrink-0"
+      <footer className="bg-brut-bg dark:bg-mid-nav border-t-3 border-brut-black dark:border-mid-border px-1.5 xs:px-2 sm:px-4 py-1.5 xs:py-2 sm:py-3 shrink-0"
               style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
         <div className="flex items-end gap-0.5 xs:gap-1 sm:gap-2">
 
@@ -265,11 +306,11 @@ export default function ChatWindow({
             disabled={!isConnected}
             title={viewOnce ? "VIEW ONCE ON — next file disappears after viewing" : "Enable View Once for next file"}
             className={`w-9 h-9 xs:w-10 xs:h-10 sm:w-auto sm:h-auto sm:p-2.5 shrink-0 flex items-center justify-center
-                        border-2 sm:border-3 border-brut-black font-black rounded-lg sm:rounded-none
+                        border-2 sm:border-3 border-brut-black dark:border-mid-border font-black rounded-lg sm:rounded-none
                         transition-all duration-100 disabled:opacity-30 active:scale-95
                         ${viewOnce
                           ? "bg-brut-pink text-white"
-                          : "bg-white text-brut-black/40 active:text-brut-black active:bg-brut-gray"}`}
+                          : "bg-white dark:bg-mid-surface text-brut-black/40 dark:text-mid-text/50 active:text-brut-black active:bg-brut-gray dark:active:bg-mid-surface2"}`}
             style={viewOnce ? { boxShadow: "2px 2px 0px #0A0A0A" } : {}}
             aria-label={viewOnce ? "View Once enabled" : "Enable View Once"}
           >
@@ -281,8 +322,9 @@ export default function ChatWindow({
             onClick={() => fileInputRef.current?.click()}
             disabled={!isConnected}
             className="w-9 h-9 xs:w-10 xs:h-10 sm:w-auto sm:h-auto sm:p-2.5 flex items-center justify-center
-                       bg-white border-2 sm:border-3 border-brut-black rounded-lg sm:rounded-none
-                       disabled:opacity-40 shrink-0 active:bg-brut-gray active:scale-95
+                       bg-white dark:bg-mid-surface text-brut-black dark:text-mid-text
+                       border-2 sm:border-3 border-brut-black dark:border-mid-border rounded-lg sm:rounded-none
+                       disabled:opacity-40 shrink-0 active:bg-brut-gray dark:active:bg-mid-surface2 active:scale-95
                        transition-all duration-100"
             title="Attach file"
             aria-label="Attach file"
@@ -325,7 +367,7 @@ export default function ChatWindow({
         </div>
         {/* Keyboard hint — desktop only */}
         <p className="hidden sm:block text-[10px] font-mono font-bold uppercase tracking-widest
-                      text-brut-black/30 mt-1.5 text-center">
+                      text-brut-black/30 dark:text-mid-muted mt-1.5 text-center">
           SHIFT+ENTER = NEW LINE · ENTER = SEND · DRAG &amp; DROP FILES
           {viewOnce && <span className="ml-2 text-brut-pink">· VIEW ONCE ACTIVE</span>}
         </p>

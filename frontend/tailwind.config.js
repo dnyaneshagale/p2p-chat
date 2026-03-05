@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: ["./src/**/*.{js,jsx,ts,tsx}", "./public/index.html"],
+  darkMode: "class",
   theme: {
     // Add xs breakpoint for small phones (iPhone SE = 320px, small Android = 360px)
     screens: {
@@ -23,7 +24,16 @@ module.exports = {
           cyan:   "#00CFFF",   // electric cyan
           white:  "#FFFFFF",
           gray:   "#F0EDDE",   // slightly darker cream for panels
-
+        },
+        // ── Midnight Blue dark mode palette ───────────────────────────────
+        mid: {
+          bg:       "#0D1B2A",   // deepest navy — page background
+          nav:      "#091220",   // header / nav bar
+          surface:  "#152030",   // cards, button fills
+          surface2: "#1B2A3B",   // inputs, hover states
+          border:   "#2A3F58",   // subtle border
+          text:     "#DDE6F0",   // primary text
+          muted:    "#6B90B0",   // secondary / hint text
         },
       },
       // ── Typography ───────────────────────────────────────────────────────
