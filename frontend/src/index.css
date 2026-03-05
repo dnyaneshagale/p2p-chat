@@ -143,22 +143,24 @@
 
   /* ── Message bubble — self (yellow) ─────────────────────────────── */
   .bubble-self {
-    @apply bg-brut-yellow text-brut-black font-medium border-3 border-brut-black
-           px-3 sm:px-4 py-2 sm:py-2.5 break-words;
-    box-shadow: 2px 2px 0px #0A0A0A;
+    @apply bg-brut-yellow text-brut-black font-medium
+           px-3.5 sm:px-4 py-2.5 sm:py-3 break-words;
+    border-radius: 18px 4px 18px 18px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 4px 12px rgba(0,0,0,0.08);
     max-width: 85%;
   }
 
   /* ── Message bubble — peer (white) ──────────────────────────────── */
   .bubble-peer {
-    @apply bg-brut-white text-brut-black font-medium border-3 border-brut-black
-           px-3 sm:px-4 py-2 sm:py-2.5 break-words;
-    box-shadow: 2px 2px 0px #0A0A0A;
+    @apply bg-brut-white text-brut-black font-medium
+           px-3.5 sm:px-4 py-2.5 sm:py-3 break-words;
+    border-radius: 4px 18px 18px 18px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06);
     max-width: 85%;
   }
 
   @media (min-width: 640px) {
-    .bubble-self, .bubble-peer { max-width: 72%; }
+    .bubble-self, .bubble-peer { max-width: 68%; }
   }
 
   /* ── Status dot ──────────────────────────────────────────────────── */
@@ -215,12 +217,17 @@ html.dark .input-field:focus { box-shadow: 3px 3px 0px #2A3F58; }
   html.dark .input-field:focus { box-shadow: 5px 5px 0px #2A3F58; }
 }
 
+/* Self bubble in dark mode — keep yellow, softer shadow */
+html.dark .bubble-self {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.3);
+}
+
 /* Peer message bubble */
 html.dark .bubble-peer {
   background: #1B2A3B;
   color: #DDE6F0;
-  border-color: #2A3F58;
-  box-shadow: 2px 2px 0px #2A3F58;
+  border-color: transparent;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.25);
 }
 
 /* Ghost / secondary button */
