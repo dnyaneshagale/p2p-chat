@@ -72,7 +72,7 @@ export default function JoinRoom({ onJoin, isConnecting, darkMode, onToggleDark 
   const [userName, setUserName] = useState("");
   const [roomId, setRoomId]     = useState("");
   const [error, setError]       = useState("");
-  const formRef = useRef(null);
+  const nameInputRef = useRef(null);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -90,8 +90,10 @@ export default function JoinRoom({ onJoin, isConnecting, darkMode, onToggleDark 
     setRoomId(Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join(""));
   };
 
-  const scrollToForm = () =>
-    formRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const focusForm = () => {
+    nameInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    nameInputRef.current?.focus();
+  };
 
   return (
     <div className="bg-brut-bg dark:bg-mid-bg" style={{ minHeight: "var(--app-height, 100vh)" }}>
@@ -112,7 +114,7 @@ export default function JoinRoom({ onJoin, isConnecting, darkMode, onToggleDark 
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={scrollToForm}
+            onClick={focusForm}
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-sm
                        text-[10px] font-black uppercase tracking-widest
                        text-brut-yellow/60 hover:text-brut-yellow
@@ -211,7 +213,7 @@ export default function JoinRoom({ onJoin, isConnecting, darkMode, onToggleDark 
 
             {/* CTA scroll button — only on mobile/tablet (lg has form beside it) */}
             <button
-              onClick={scrollToForm}
+              onClick={focusForm}
               className="lg:hidden btn-primary flex items-center gap-2 text-sm"
             >
               START CHATTING <ChevronDown size={15} strokeWidth={2.5} />
@@ -219,7 +221,7 @@ export default function JoinRoom({ onJoin, isConnecting, darkMode, onToggleDark 
           </div>
 
           {/* ── Right: Join form ── */}
-          <div ref={formRef} className="animate-fade-in">
+          <div className="animate-fade-in">
 
             {/* Form header stamp */}
             <div
@@ -245,6 +247,7 @@ export default function JoinRoom({ onJoin, isConnecting, darkMode, onToggleDark 
                 <div>
                   <label className="brut-label">Your Name</label>
                   <input
+                    ref={nameInputRef}
                     type="text"
                     className="input-field font-bold text-base"
                     placeholder="e.g. ALICE"
