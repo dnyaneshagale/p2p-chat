@@ -46,18 +46,12 @@ window.addEventListener("orientationchange", () => {
   setTimeout(setAppHeight, 150);
 });
 
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
-  </React.StrictMode>
-);
-
 /**
  * ErrorBoundary — catches any render-phase exception in the tree so the user
  * sees a friendly message instead of a blank white screen.
+ * NOTE: must be defined BEFORE root.render() — class declarations are in the
+ * Temporal Dead Zone until evaluated, so using the class before its definition
+ * throws a ReferenceError and causes the blank screen we're trying to prevent.
  */
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -103,3 +97,12 @@ class ErrorBoundary extends React.Component {
     );
   }
 }
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(
+  <React.StrictMode>
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  </React.StrictMode>
+);
