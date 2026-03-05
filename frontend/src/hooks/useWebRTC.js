@@ -577,8 +577,15 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
     switch (msg.type) {
       case "offer": {
         let pc = pcRef.current;
-        if (!pc) {
-          // First offer — fetch fresh TURN credentials before creating PC
+        // Create a fresh PC when:
+        //   a) there is no PC yet (first connection), OR
+        //   b) the existing PC is closed — this happens when a peer leaves and
+        //      rejoins; pcRef still holds the old closed PC from the previous
+        //      session, and calling setRemoteDescription on it throws
+        //      InvalidStateError, silently killing the reconnect attempt.
+        const pcIsClosed = pc && (pc.signalingState === "closed" || pc.connectionState === "closed");
+        if (!pc || pcIsClosed) {
+          // First offer (or reconnect after peer left) — fetch fresh TURN credentials
           await ensureFreshIceConfig();
           isPolitePeerRef.current = true; // we are the answerer (polite)
           pc = createPeerConnection();

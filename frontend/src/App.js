@@ -211,6 +211,12 @@ export default function App() {
   // ── Leave handler ──────────────────────────────────────────────────────────
   const handleLeave = useCallback(() => {
     if (callState !== "idle") endCall();
+    // Reset the PeerConnection before disconnecting so the next session starts
+    // with a clean slate. Without this, pcRef.current holds the old closed PC;
+    // when the peer rejoins and receives a new offer, the "offer" handler finds
+    // a non-null pcRef, skips PC creation, and tries setRemoteDescription on the
+    // closed PC — silently failing and leaving the UI stuck at "CONNECTING…".
+    webrtcRef.current?.resetPeerConnection();
     disconnect();
     setRoomId(null);
     setDisplayRoom("");
