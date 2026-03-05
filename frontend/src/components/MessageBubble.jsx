@@ -151,7 +151,7 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
                           transition-colors flex items-center justify-center pointer-events-none">
             <span className="opacity-0 group-hover/img:opacity-100 transition-opacity
                              bg-brut-yellow border-2 border-brut-black rounded-md
-                             font-black text-[10px] uppercase tracking-widest px-2 py-1
+                             font-black text-[10px] text-brut-black uppercase tracking-widest px-2 py-1
                              flex items-center gap-1">
               <Maximize2 size={11} strokeWidth={2.5} /> EXPAND
             </span>

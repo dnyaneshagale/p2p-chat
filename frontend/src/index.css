@@ -217,8 +217,10 @@ html.dark .input-field:focus { box-shadow: 3px 3px 0px #2A3F58; }
   html.dark .input-field:focus { box-shadow: 5px 5px 0px #2A3F58; }
 }
 
-/* Self bubble in dark mode — keep yellow, softer shadow */
+/* Self bubble in dark mode — deep royal-blue accent, light text */
 html.dark .bubble-self {
+  background: #1A478A;
+  color: #DDE6F0;
   box-shadow: 0 1px 3px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.3);
 }
 
