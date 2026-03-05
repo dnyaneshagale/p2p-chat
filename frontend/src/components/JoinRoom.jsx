@@ -441,7 +441,6 @@ export default function JoinRoom({ onJoin, isConnecting, darkMode, onToggleDark 
             <span>Zero server relay</span>
             <span>E2E encrypted</span>
             <span>No account needed</span>
-            <span>MIT License</span>
           </div>
           <p className="text-[10px] font-mono text-white/20 uppercase tracking-widest">
             © 2026 · chat-p2p-x.web.app
