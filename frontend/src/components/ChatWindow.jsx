@@ -279,16 +279,19 @@ export default function ChatWindow({
 
       {/* ── Reply preview bar ── */}
       {replyTo && (
-        <div className="bg-brut-yellow border-t-3 border-brut-black px-3 sm:px-4 py-2.5
-                        flex items-center justify-between animate-slide-up shrink-0">
-          <div className="text-xs font-mono min-w-0 mr-2">
-            <span className="font-black uppercase tracking-wide">{replyTo.from}: </span>
-            <span className="opacity-70 truncate max-w-[200px] sm:max-w-[280px] inline-block align-bottom">
-              {replyTo.text || "Attachment"}
-            </span>
+        <div className="bg-brut-black dark:bg-mid-surface2 border-t-3 border-brut-black dark:border-mid-border
+                        px-3 sm:px-4 py-2.5 flex items-center justify-between animate-slide-up shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0 mr-2">
+            <div className="w-0.5 h-8 bg-brut-yellow dark:bg-mid-muted shrink-0 rounded-full" />
+            <div className="text-xs font-mono min-w-0">
+              <span className="font-black uppercase tracking-wide text-brut-yellow dark:text-mid-muted">{replyTo.from}: </span>
+              <span className="text-white/70 dark:text-mid-text/60 truncate max-w-[200px] sm:max-w-[280px] inline-block align-bottom">
+                {replyTo.text || "Attachment"}
+              </span>
+            </div>
           </div>
           <button onClick={() => setReplyTo(null)}
-                  className="font-black text-brut-black hover:text-brut-pink ml-3 transition-colors p-1"
+                  className="font-black text-white/60 hover:text-brut-pink ml-3 transition-colors p-1"
                   aria-label="Cancel reply">
             <X size={14} strokeWidth={2.5} />
           </button>

@@ -291,11 +291,36 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
           {/* Media/file */}
           {renderAttachment()}
 
-          {/* Timestamp — inside bubble, bottom */}
-          <div className={`flex items-center mt-1.5 ${isSelf ? "justify-end" : "justify-start"}`}>
-            <span className="font-mono text-[10px] font-bold opacity-35 uppercase select-none">
+          {/* Timestamp + Reply button row — inside bubble */}
+          <div className={`flex items-center gap-2 mt-1.5 ${isSelf ? "justify-end" : "justify-between"}`}>
+            {/* Reply button (left side for peer; right+rotated for self) */}
+            {!isSelf && (
+              <button
+                onClick={() => onReply?.(message)}
+                className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider
+                           text-brut-black/40 dark:text-mid-muted
+                           hover:text-brut-pink dark:hover:text-brut-pink
+                           active:scale-90 transition-all duration-100 -ml-0.5"
+                aria-label="Reply"
+              >
+                <CornerUpLeft size={11} strokeWidth={2.5} /> Reply
+              </button>
+            )}
+            <span className={`font-mono text-[10px] font-bold opacity-35 uppercase select-none ${isSelf ? "" : "ml-auto"}`}>
               {timeStr}
             </span>
+            {isSelf && (
+              <button
+                onClick={() => onReply?.(message)}
+                className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider
+                           text-brut-black/40 dark:text-mid-text/40
+                           hover:text-brut-pink dark:hover:text-brut-pink
+                           active:scale-90 transition-all duration-100 -mr-0.5"
+                aria-label="Reply"
+              >
+                Reply <CornerUpLeft size={11} strokeWidth={2.5} className="scale-x-[-1]" />
+              </button>
+            )}
           </div>
         </div>
       </div>
