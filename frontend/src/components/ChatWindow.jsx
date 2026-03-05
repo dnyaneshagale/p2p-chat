@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { Phone, Video, PhoneOff, Eye, EyeOff, Paperclip, Send, X, Upload, Zap } from "lucide-react";
+import { Phone, Video, PhoneOff, Eye, EyeOff, Paperclip, Send, X, Upload, Zap, LogOut } from "lucide-react";
 import MessageBubble from "./MessageBubble";
 import MediaViewer from "./MediaViewer";
 
@@ -25,6 +25,7 @@ import MediaViewer from "./MediaViewer";
  *   @param {function} onStartVoiceCall
  *   @param {function} onStartVideoCall
  *   @param {function} onEndCall
+ *   @param {function} onLeave          - leaves the session entirely
  *   @param {string}   callState        - "idle" | "outgoing-ringing" | ...
  *   @param {string}   callType         - "voice" | "video" | null
  *   @param {string}   status           - "waiting" | "connected" | "peer-left"
@@ -40,6 +41,7 @@ export default function ChatWindow({
   onStartVoiceCall,
   onStartVideoCall,
   onEndCall,
+  onLeave,
   callState,
   callType,
   status,
@@ -119,7 +121,21 @@ export default function ChatWindow({
                          border-b-3 border-brut-black shrink-0"
              style={{ paddingTop: "max(0.375rem, env(safe-area-inset-top))" }}>
         {/* Room info */}
-        <div className="flex items-center gap-1.5 sm:gap-4 min-w-0">
+        <div className="flex items-center gap-1 xs:gap-1.5 sm:gap-4 min-w-0">
+          {/* Leave / back button */}
+          <button
+            onClick={onLeave}
+            title="Leave session"
+            aria-label="Leave session"
+            className="w-8 h-8 xs:w-9 xs:h-9 sm:w-auto sm:h-auto sm:px-2.5 sm:py-1.5 shrink-0
+                       flex items-center justify-center gap-1.5
+                       bg-white/10 border border-white/20 text-white/60
+                       active:bg-brut-pink/30 active:border-brut-pink/50 active:text-brut-pink active:scale-95
+                       transition-all duration-100 rounded-lg sm:rounded-sm"
+          >
+            <LogOut size={15} strokeWidth={2.5} />
+            <span className="hidden sm:inline text-[10px] font-black uppercase tracking-wider">LEAVE</span>
+          </button>
           <div className="bg-brut-yellow border-2 sm:border-3 border-brut-yellow px-1 xs:px-1.5 sm:px-3 py-0.5 sm:py-1 shrink-0"
                style={{ boxShadow: "2px 2px 0px #FFE500" }}>
             <span className="font-black text-brut-black text-[9px] xs:text-[10px] sm:text-xs uppercase tracking-wider xs:tracking-widest font-mono">

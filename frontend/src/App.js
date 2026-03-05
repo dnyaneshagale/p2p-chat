@@ -149,7 +149,7 @@ export default function App() {
   }, []); // Empty deps — only uses refs and setters
 
   // ── Signaling hook (WS opens only when roomId is set) ─────────────────────
-  const { joinRoom, sendSignal } = useSignaling(
+  const { joinRoom, sendSignal, disconnect } = useSignaling(
     roomId ? SIGNALING_URL : null,
     handleSignalingMessage
   );
@@ -186,6 +186,40 @@ export default function App() {
   useEffect(() => {
     if (isConnected) setAppStatus("connected");
   }, [isConnected]);
+
+  // ── Leave handler ──────────────────────────────────────────────────────────
+  const handleLeave = useCallback(() => {
+    if (callState !== "idle") endCall();
+    disconnect();
+    setRoomId(null);
+    setDisplayRoom("");
+    setPeerName("Peer");
+    setMessages([]);
+    setAppStatus("waiting");
+    setIsConnecting(false);
+  }, [callState, endCall, disconnect]);
+
+  // Stable ref so event listeners always call the latest handleLeave
+  const handleLeaveRef = useRef(handleLeave);
+  useEffect(() => { handleLeaveRef.current = handleLeave; }, [handleLeave]);
+
+  // Intercept browser back button while in a session
+  useEffect(() => {
+    if (!roomId) return;
+    // Push a history entry so the back button has something to pop
+    history.pushState({ inSession: true }, "");
+    const onPopState = () => handleLeaveRef.current();
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [roomId]); // eslint-disable-line
+
+  // Show browser "Leave site?" dialog on reload / tab-close while in a session
+  useEffect(() => {
+    if (!roomId) return;
+    const onBeforeUnload = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [roomId]);
 
   // ── Join handler ───────────────────────────────────────────────────────────
   const handleJoin = useCallback(async (roomCode, name) => {
@@ -259,6 +293,7 @@ export default function App() {
         onStartVoiceCall={() => initiateCall("voice")}
         onStartVideoCall={() => initiateCall("video")}
         onEndCall={endCall}
+        onLeave={handleLeave}
         callState={callState}
         callType={callType}
         status={appStatus}

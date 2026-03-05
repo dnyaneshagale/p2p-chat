@@ -115,5 +115,16 @@ export function useSignaling(signalingUrl, onMessage) {
     sendSignal({ type: "join", roomId: hashedRoomId });
   }, [sendSignal]);
 
-  return { joinRoom, sendSignal };
+  /**
+   * Intentionally close the WebSocket and stop all reconnect attempts.
+   * Call this when the user explicitly leaves the session.
+   */
+  const disconnect = useCallback(() => {
+    destroyed.current = true;
+    pendingJoin.current = null;
+    clearTimeout(retryTimer.current);
+    wsRef.current?.close();
+  }, []);
+
+  return { joinRoom, sendSignal, disconnect };
 }
