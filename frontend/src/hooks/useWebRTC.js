@@ -37,123 +37,26 @@ async function fetchIceConfig() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Audio processing — Web Audio API chain for cleaner mic input
-// Noise gate silences background when you're not speaking.
-// Filters narrow the band to voice frequencies, cutting rumble & hiss.
+// WHY THERE IS NO WEB AUDIO PROCESSING CHAIN
 // ──────────────────────────────────────────────────────────────────────────────
-function createAudioProcessingChain(rawStream) {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
-    // iOS Safari (and some Android WebViews) start AudioContext in "suspended" state.
-    // If we don't resume it here the entire processing chain outputs silence —
-    // the peer receives an active-but-silent audio track instead of voice.
-    ctx.resume().catch(() => {});
-    const source = ctx.createMediaStreamSource(rawStream);
-
-    // ── 1. High-pass: cut below 80 Hz ──────────────────────────────────
-    // 80 Hz preserves male voice fundamentals (~85 Hz) while still
-    // removing room rumble, AC hum, wind, and mic handling noise.
-    const highpass = ctx.createBiquadFilter();
-    highpass.type = "highpass";
-    highpass.frequency.value = 80;
-    highpass.Q.value = 0.9;
-
-    // ── 2. Low-pass: cut above 16 kHz ───────────────────────────────────
-    // 16 kHz captures full vocal brilliance and consonant clarity while
-    // still removing ultrasonic electronic noise above Opus's useful range.
-    const lowpass = ctx.createBiquadFilter();
-    lowpass.type = "lowpass";
-    lowpass.frequency.value = 16000;
-    lowpass.Q.value = 0.7;
-
-    // ── 3. Voice presence boost: +4 dB at 3 kHz ──────────────────────
-    // 3 kHz is the ear's peak sensitivity — boosts consonant clarity and
-    // speech intelligibility without raising background level.
-    const presence = ctx.createBiquadFilter();
-    presence.type = "peaking";
-    presence.frequency.value = 3000;
-    presence.Q.value = 1.2;
-    presence.gain.value = 4;
-
-    // ── 4. Noise gate via analyser + gain automation ────────────────────
-    // When RMS drops below threshold → mute. Voice resumes → unmute.
-    // Uses setInterval (not rAF) so it works when tab is in background.
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 2048;
-    analyser.smoothingTimeConstant = 0.4;
-
-    const gateGain = ctx.createGain();
-    gateGain.gain.value = 0; // start closed
-
-    const dataArray = new Float32Array(analyser.fftSize);
-    const GATE_OPEN_DB  = -45;  // open when signal rises above this
-    const GATE_CLOSE_DB = -55;  // close when drops below (hysteresis prevents chatter)
-    const ATTACK  = 0.008;      // 8 ms open — fast so words aren't clipped
-    const RELEASE = 0.15;       // 150 ms close — smooth tail, preserves word endings
-    let gateOpen = false;
-
-    const gateInterval = setInterval(() => {
-      analyser.getFloatTimeDomainData(dataArray);
-      let sum = 0;
-      for (let i = 0; i < dataArray.length; i++) sum += dataArray[i] * dataArray[i];
-      const rms = Math.sqrt(sum / dataArray.length);
-      const dB = rms > 0 ? 20 * Math.log10(rms) : -100;
-
-      const now = ctx.currentTime;
-      if (!gateOpen && dB > GATE_OPEN_DB) {
-        gateOpen = true;
-        gateGain.gain.cancelScheduledValues(now);
-        gateGain.gain.setTargetAtTime(1.0, now, ATTACK);
-      } else if (gateOpen && dB < GATE_CLOSE_DB) {
-        gateOpen = false;
-        gateGain.gain.cancelScheduledValues(now);
-        gateGain.gain.setTargetAtTime(0.0, now, RELEASE);
-      }
-    }, 30); // ~33 Hz polling
-
-    // ── 5. Voice compressor (after gate) — consistent levels ──────────
-    const compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -18;  // engage slightly earlier for consistent voice
-    compressor.knee.value = 8;
-    compressor.ratio.value = 4;        // 4:1 — assertive but natural-sounding
-    compressor.attack.value = 0.002;   // 2 ms — catches loud transients quickly
-    compressor.release.value = 0.20;   // 200 ms — smooth recovery, no pumping
-
-    // Chain: mic → highpass → lowpass → analyser → gate → presence → compressor → out
-    source.connect(highpass);
-    highpass.connect(lowpass);
-    lowpass.connect(analyser);
-    analyser.connect(gateGain);
-    gateGain.connect(presence);
-    presence.connect(compressor);
-
-    const dest = ctx.createMediaStreamDestination();
-    compressor.connect(dest);
-
-    // Carry over any video tracks from the original stream
-    const processed = dest.stream;
-    rawStream.getVideoTracks().forEach((vt) => processed.addTrack(vt));
-
-    // Store refs for cleanup
-    processed._audioCtx = ctx;
-    processed._rawStream = rawStream;
-    processed._gateInterval = gateInterval;
-
-    // Re-resume the AudioContext whenever the tab becomes visible again.
-    // Mobile browsers (iOS/Android) suspend it when the app goes to background.
-    const resumeAudioCtx = () => {
-      if (ctx.state === "suspended") ctx.resume().catch(() => {});
-    };
-    document.addEventListener("visibilitychange", resumeAudioCtx);
-    processed._resumeListener = resumeAudioCtx;
-
-    console.log("[Audio] Chain: highpass→lowpass→gate→presence→compressor");
-    return processed;
-  } catch (err) {
-    console.warn("[Audio] Web Audio processing unavailable, using raw mic:", err.message);
-    return rawStream;
-  }
-}
+// A Web Audio API chain (filters → noise gate → compressor → MediaStreamDestination)
+// introduces 30–80 ms of pipeline latency onto the outgoing audio track's RTP
+// timestamps.  Because audio and video are added to the PeerConnection with the
+// same stream reference, Chrome groups them into the same RTCP synchronisation
+// context.  The remote peer reads RTCP SR reports and sees:
+//   audio RTP ts  →  NTP: wall_clock − 50 ms   (processing delay)
+//   video RTP ts  →  NTP: wall_clock
+// To maintain A/V sync it holds video back to match the late-timestamped audio.
+// Result: audio leads, video permanently lags by exactly the chain latency —
+// the longer the call, the more noticeable (video renderer keeps accumulating
+// presentation offset).
+//
+// The browser's built-in audio processing requested via getUserMedia constraints
+// (echoCancellation → AEC3, noiseSuppression → RNNoise, autoGainControl → AGC2)
+// runs in the native capture pipeline BEFORE timestamps are applied, so it adds
+// zero RTP timestamp skew.  Chrome's AEC3 / RNNoise are also higher quality than
+// anything achievable with Web Audio biquad nodes for speech.
+// ──────────────────────────────────────────────────────────────────────────────
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Opus SDP optimization — dramatically improves voice quality over lossy networks
@@ -167,6 +70,7 @@ function optimizeOpusSdp(sdp) {
   // Desired Opus parameters
   const opusParams = {
     minptime:                  "10",
+    ptime:                     "10",     // 10 ms frame size — reduces speech latency vs 20 ms
     maxptime:                  "20",     // 20 ms packets — best latency/quality tradeoff
     useinbandfec:              "1",      // FEC — recovers lost packets without retransmit
     usedtx:                    "0",      // DTX off — no silence-detection dropouts
@@ -174,7 +78,10 @@ function optimizeOpusSdp(sdp) {
     "sprop-maxcapturerate":    "48000",  // tell remote we capture at 48 kHz
     maxplaybackrate:           "48000",  // request 48 kHz playback (Opus wideband)
     stereo:                    "0",      // Mono — better quality per bit for voice
+    "sprop-stereo":            "0",      // tell remote we send mono (prevents stereo negotiation)
     cbr:                       "0",      // VBR — adapts quality to content
+    packetlossperc:            "10",     // tell encoder to expect 10% loss → denser FEC redundancy
+    plc:                       "1",      // Packet Loss Concealment — synthesizes missing frames, prevents robotic artifacts
   };
 
   const fmtpRegex = new RegExp(`a=fmtp:${pt} (.+)`);
@@ -201,6 +108,35 @@ function optimizeOpusSdp(sdp) {
 }
 
 /**
+ * Ensure Transport-CC RTCP feedback is advertised for every video codec.
+ * Transport-CC replaces REMB for bandwidth estimation — it gives the sender
+ * fine-grained per-packet RTT and loss info so GCC (Google Congestion Control)
+ * can react in <100 ms instead of the 1-2 s REMB cycle.
+ * Modern Chrome includes this by default; this makes it explicit for
+ * Firefox and Safari which may omit it.
+ */
+function addTransportCC(sdp) {
+  const lines = sdp.split("\r\n");
+  const result = [];
+  for (let i = 0; i < lines.length; i++) {
+    result.push(lines[i]);
+    const m = lines[i].match(/^a=rtpmap:(\d+) (?:H264|VP8|VP9|AV1)/i);
+    if (m) {
+      const pt = m[1];
+      if (!lines.some((l) => l === `a=rtcp-fb:${pt} transport-cc`)) {
+        result.push(`a=rtcp-fb:${pt} transport-cc`);
+      }
+    }
+  }
+  return result.join("\r\n");
+}
+
+/** Run all SDP mutations: Opus tuning + Transport-CC injection. */
+function processSdp(sdp) {
+  return addTransportCC(optimizeOpusSdp(sdp));
+}
+
+/**
  * Tune audio sender bitrate + priority after tracks are added.
  * Uses RTCRtpSender.setParameters for runtime bitrate control.
  */
@@ -212,7 +148,8 @@ function tuneAudioSenders(pc) {
       const params = sender.getParameters();
       if (!params.encodings?.length) return;
       params.encodings[0].maxBitrate      = 128_000; // 128 kbps — matches Opus SDP
-      params.encodings[0].priority        = "high";
+      params.encodings[0].minBitrate      = 32_000;  // 32 kbps floor — enough for intelligible speech under severe loss
+      params.encodings[0].priority        = "very-high"; // audio survives congestion; GCC cuts video first
       params.encodings[0].networkPriority = "high";
       sender.setParameters(params).catch(() => {});
     } catch (_) {}
@@ -220,9 +157,15 @@ function tuneAudioSenders(pc) {
 }
 
 /**
- * Prefer VP9 over VP8 for video transceivers using the standards-based
- * RTCRtpTransceiver.setCodecPreferences API. VP9 delivers ~50% better
- * compression than VP8 at the same quality — sharper video on any bitrate.
+ * Prefer H.264 → VP8 for video transceivers.  VP9 is intentionally excluded.
+ *
+ * VP9 on Windows/Android/iOS commonly falls back to software decode (libvpx)
+ * which uses a 2-5 frame decode lookahead buffer that audio (Opus) does not
+ * have — producing systematic A/V desync that grows over the call.
+ * H.264 is hardware-accelerated on virtually every device (Intel QSV,
+ * NVIDIA NVDEC, AMD VCN, Apple VideoToolbox, Qualcomm HW decoder).
+ * VP8 is the legacy fallback — also hardware on most mobile SoCs.
+ *
  * Must be called after addTrack() but before createOffer/createAnswer.
  */
 function applyVideoCodecPreferences(pc) {
@@ -230,11 +173,13 @@ function applyVideoCodecPreferences(pc) {
   try {
     const codecs = RTCRtpReceiver.getCapabilities("video")?.codecs ?? [];
     if (!codecs.length) return;
-    // Sort: VP9 first (superior compression), VP8 fallback, then rest
+    // H.264 first — hardware en/decode, deterministic latency → frame-accurate A/V sync.
+    // VP8 second — hardware on most mobile SoCs, no multi-frame lookahead.
+    // VP9 excluded — software decode lookahead causes progressive A/V drift.
     const sorted = [
-      ...codecs.filter((c) => c.mimeType === "video/VP9"),
+      ...codecs.filter((c) => c.mimeType === "video/H264"),
       ...codecs.filter((c) => c.mimeType === "video/VP8"),
-      ...codecs.filter((c) => !["video/VP9", "video/VP8"].includes(c.mimeType)),
+      ...codecs.filter((c) => !["video/H264", "video/VP8", "video/VP9"].includes(c.mimeType)),
     ];
     if (!sorted.length) return;
     pc.getTransceivers().forEach((tc) => {
@@ -246,8 +191,18 @@ function applyVideoCodecPreferences(pc) {
 }
 
 /**
- * Set video sender max bitrate and priority for HD quality.
- * 2.5 Mbps gives clean 720p@30fps; the browser adapts down on poor links.
+ * Set video sender parameters for 360p real-time mode.
+ *
+ * degradationPreference = "maintain-framerate":
+ *   When bandwidth is low the encoder drops quality/resolution instead of
+ *   buffering frames. Without this, encoders (especially VP9 software) hold
+ *   2-4 frames in a look-ahead buffer (~130 ms at 30fps) to improve
+ *   compression — that buffer is exactly why video drifts behind audio.
+ *   Discord, Google Meet, and Steam use this mode.
+ *
+ * scaleResolutionDownBy = 1.0:
+ *   Prevents the browser from silently downscaling frames inside the encoder
+ *   pipeline, which can stagger frame timing and cause drift.
  */
 function tuneVideoSenders(pc) {
   if (!pc) return;
@@ -256,13 +211,140 @@ function tuneVideoSenders(pc) {
     try {
       const params = sender.getParameters();
       if (!params.encodings?.length) return;
-      params.encodings[0].maxBitrate      = 2_500_000; // 2.5 Mbps — HD 720p
+      params.degradationPreference        = "maintain-framerate";
+      params.encodings[0].maxBitrate      = 900_000; // 900 kbps — generous for 360p, room to adapt
+      params.encodings[0].minBitrate      = 150_000; // 150 kbps floor — GCC adapts within this range
       params.encodings[0].maxFramerate    = 30;
+      params.encodings[0].scaleResolutionDownBy = 1.0;
+      params.encodings[0].scalabilityMode = "L1T1"; // single spatial+temporal layer — fastest keyframe recovery
       params.encodings[0].priority        = "high";
       params.encodings[0].networkPriority = "high";
       sender.setParameters(params).catch(() => {});
     } catch (_) {}
   });
+}
+
+/**
+ * Prefer RED+Opus for audio transceivers if the browser supports it.
+ * RED (RFC 2198) sends the current audio frame PLUS the previous frame in each
+ * packet. If either packet is lost the redundant copy provides full recovery —
+ * better than FEC alone at the same bitrate. Used by WhatsApp and Chrome
+ * internal calls on poor networks.
+ * Falls back gracefully: if audio/RED is not in the codec list the function
+ * is a no-op and Opus FEC still applies.
+ */
+function applyAudioCodecPreferences(pc) {
+  if (!pc || typeof RTCRtpReceiver.getCapabilities !== "function") return;
+  try {
+    const codecs = RTCRtpReceiver.getCapabilities("audio")?.codecs ?? [];
+    if (!codecs.length) return;
+    // RED first — redundant Opus packets, best packet-loss recovery.
+    // Opus next — plain Opus with FEC as fallback.
+    // Everything else last.
+    const sorted = [
+      ...codecs.filter((c) => c.mimeType === "audio/red"),
+      ...codecs.filter((c) => c.mimeType === "audio/opus"),
+      ...codecs.filter((c) => !["audio/red", "audio/opus"].includes(c.mimeType)),
+    ];
+    pc.getTransceivers().forEach((tc) => {
+      try {
+        if (tc.sender.track?.kind === "audio") tc.setCodecPreferences(sorted);
+      } catch (_) {}
+    });
+  } catch (_) {}
+}
+
+/**
+ * Combined adaptive video parameter loop — runs every 3 s while connected.
+ *
+ * In a single pass it:
+ *   1. Samples audio receiver inbound-rtp stats (jitter + packet loss rate)
+ *      to gauge overall network health — audio degrades first when the
+ *      network is congested.
+ *   2. Samples video sender outbound-rtp stats for qualityLimitationReason
+ *      to detect CPU / encoder backlog.
+ *   3. Applies both maxFramerate AND maxBitrate in ONE setParameters() call
+ *      per sender — avoids the race condition of two concurrent
+ *      getParameters/setParameters sequences clobbering each other.
+ *
+ * Adaptive framerate (CPU/bandwidth pressure — WhatsApp frame-drop trick):
+ *   "cpu"       → 15 fps  — drain encoder queue, prevent freeze-then-burst
+ *   "bandwidth" → 24 fps  — reduce burst packet size
+ *   "none"      → 30 fps  — full rate
+ *
+ * Adaptive bitrate (audio health → network congestion signal):
+ *   loss > 10% or jitter > 60 ms → 200 kbps  (severe congestion)
+ *   loss >  5% or jitter > 30 ms → 400 kbps  (moderate congestion)
+ *   otherwise                    → 900 kbps  (healthy — full budget)
+ *
+ * Using audio health as a proxy for video bitrate is the same technique
+ * Zoom and Google Meet use: audio is low-bitrate and loss-sensitive, so
+ * it's the earliest signal of network stress before video visibly degrades.
+ */
+async function adaptVideoSenderParams(pc) {
+  if (!pc) return;
+
+  // ── Step 1: sample audio receiver stats ────────────────────────────────
+  let worstJitter = 0;   // seconds (WebRTC stat unit)
+  let worstLoss   = 0;   // fraction 0–1
+  for (const recv of pc.getReceivers()) {
+    if (recv.track?.kind !== "audio") continue;
+    try {
+      const stats = await recv.getStats();
+      stats.forEach((r) => {
+        if (r.type !== "inbound-rtp" || r.kind !== "audio") return;
+        worstJitter = Math.max(worstJitter, r.jitter ?? 0);
+        const total = (r.packetsReceived ?? 0) + (r.packetsLost ?? 0);
+        if (total > 0) worstLoss = Math.max(worstLoss, (r.packetsLost ?? 0) / total);
+      });
+    } catch (_) {}
+  }
+
+  // Derived bitrate cap from audio health
+  const targetBitrate =
+    worstLoss > 0.10 || worstJitter > 0.060 ? 200_000 : // severe
+    worstLoss > 0.05 || worstJitter > 0.030 ? 400_000 : // moderate
+    900_000;                                             // healthy
+
+  // ── Step 2: per video sender — sample CPU stats + apply both params ────
+  for (const sender of pc.getSenders()) {
+    if (sender.track?.kind !== "video") continue;
+    try {
+      const sendStats = await sender.getStats();
+      let limitation = "none";
+      sendStats.forEach((r) => {
+        if (r.type === "outbound-rtp" && r.kind === "video") {
+          limitation = r.qualityLimitationReason ?? "none";
+        }
+      });
+
+      const targetFps = limitation === "cpu" ? 15 : limitation === "bandwidth" ? 24 : 30;
+
+      const params = sender.getParameters();
+      if (!params.encodings?.length) continue;
+
+      const curFps     = params.encodings[0].maxFramerate;
+      const curBitrate = params.encodings[0].maxBitrate;
+      if (curFps === targetFps && curBitrate === targetBitrate) continue; // nothing to do
+
+      params.encodings[0].maxFramerate = targetFps;
+      params.encodings[0].maxBitrate   = targetBitrate;
+      sender.setParameters(params).catch(() => {});
+      console.log(
+        `[WebRTC] Video adapt: fps=${targetFps} bitrate=${targetBitrate / 1000}kbps` +
+        ` (cpu="${limitation}" jitter=${(worstJitter * 1000).toFixed(0)}ms` +
+        ` loss=${(worstLoss * 100).toFixed(1)}%)`
+      );
+    } catch (_) {}
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stop all tracks on a MediaStream acquired via getUserMedia.
+// ─────────────────────────────────────────────────────────────────────────────
+function stopStream(stream) {
+  if (!stream) return;
+  stream.getTracks().forEach((t) => { try { t.stop(); } catch (_) {} });
 }
 
 // File transfer constants
@@ -289,6 +371,17 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
   const callTypeRef    = useRef(null);   // "video" | "voice" | null
   const callStateRef   = useRef("idle"); // mirror of callState for non-stale reads
   const isPolitePeerRef = useRef(false); // true = we answered the first offer (polite)
+  // Holds a pre-warmed { type, promise } so getUserMedia runs during ring time,
+  // not after the peer answers — eliminates the largest single source of call delay.
+  const warmMediaRef = useRef(null);
+  // Throwaway PC created on room-join to pre-warm OS STUN/TURN paths.
+  // Ensures UDP sockets + NAT entries are allocated before a call starts.
+  const warmPcRef = useRef(null);
+  // Stable remote MediaStream — tracks are added/removed in-place via addTrack/
+  // removeTrack rather than creating a new object each time. This means the DOM
+  // element's srcObject never changes reference → no decoder buffer reset → no
+  // A/V desync when the video track arrives after the audio track.
+  const remoteStreamStableRef = useRef(null);
 
   const incomingFileRef = useRef({
     name: "", type: "", size: 0, chunks: [], receivedSize: 0, viewOnce: false,
@@ -308,10 +401,47 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
   useEffect(() => { userNameRef.current  = userName;  }, [userName]);
   useEffect(() => { callStateRef.current = callState; }, [callState]);
 
-  // Fetch TURN credentials on mount so they're ready before the first call
+  // Transition connecting → active as soon as remote media arrives.
+  // For the first call, ontrack fires on the receiver and handles this.
+  // For subsequent calls the same RTCRtpReceiver objects are reused — Chrome
+  // does not re-fire ontrack for existing receivers on renegotiation, so we
+  // watch remoteStream state directly as the authoritative "media is flowing" signal.
+  useEffect(() => {
+    if (
+      remoteStream &&
+      (callStateRef.current === "connecting" || callStateRef.current === "outgoing-ringing")
+    ) {
+      setCallState("active");
+      setCallStartTime(Date.now());
+    }
+  }, [remoteStream]);
+
+  // Fetch TURN credentials on mount, then immediately pre-warm ICE gathering.
+  // A throwaway RTCPeerConnection with iceCandidatePoolSize triggers UDP socket
+  // allocation, STUN binds, and TURN allocations in the background — so by the
+  // time the user places a call those OS-level network paths are already warm.
+  // This saves 200–400 ms of perceived call setup time.
   useEffect(() => {
     let cancelled = false;
-    fetchIceConfig().then((c) => { if (!cancelled) iceConfigRef.current = c; });
+    fetchIceConfig().then((c) => {
+      if (!cancelled) {
+        iceConfigRef.current = c;
+        try {
+          if (warmPcRef.current) { warmPcRef.current.close(); warmPcRef.current = null; }
+          const warmPc = new RTCPeerConnection({ ...c, iceCandidatePoolSize: 6 });
+          warmPc.createDataChannel("warmup");
+          // createOffer + setLocalDescription starts ICE gathering immediately
+          warmPc.createOffer()
+            .then((offer) => warmPc.setLocalDescription(offer))
+            .catch(() => {});
+          warmPcRef.current = warmPc;
+          // NAT mappings expire at ~30-60 s — close before they go stale
+          setTimeout(() => {
+            if (warmPcRef.current === warmPc) { warmPc.close(); warmPcRef.current = null; }
+          }, 55_000);
+        } catch (_) {}
+      }
+    });
     return () => { cancelled = true; };
   }, []);
 
@@ -334,68 +464,82 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
     }
   }, []);
 
-  // ── getUserMedia helper ───────────────────────────────────────────────────
   const acquireMedia = useCallback(async (type) => {
     const constraints = {
+      // All quality processing is handled by the browser's native capture pipeline
+      // (Chrome: AEC3 echo cancel, RNNoise suppression, AGC2 gain control).
+      // These run BEFORE audio frames are timestamped so they add zero RTP
+      // timestamp offset relative to the video track — essential for A/V sync.
+      // NOTE: do NOT set `latency` — requesting very low latency (e.g. 0.01 s)
+      // can trigger a different Windows WASAPI audio mode whose internal clock
+      // domain differs from the camera clock, producing systematic A/V drift.
+      // Chrome's default WebRTC capture path is already latency-optimised.
+      // Exact constraints (not ideal: wrappers so browsers cannot ignore them).
+      // goog* flags are deprecated — modern Chrome already runs AEC3 / RNNoise /
+      // AGC2 automatically; listing them can trigger legacy code paths.
       audio: {
-        // Standard W3C constraints
-        echoCancellation:  { ideal: true },
-        noiseSuppression:  { ideal: true },
-        autoGainControl:   { ideal: true },
-        channelCount:      { ideal: 1 },      // mono — better Opus quality per bit
-        sampleRate:        { ideal: 48000 },  // 48 kHz — Opus native sample rate
-        sampleSize:        { ideal: 16 },
-        latency:           { ideal: 0.01 },   // 10 ms capture latency
-        // Chrome-specific advanced noise handling (ignored by other browsers)
-        googNoiseSuppression:  { ideal: true },
-        googNoiseSuppression2: { ideal: true },
-        googHighpassFilter:    { ideal: true },
-        googEchoCancellation:  { ideal: true },
-        googAutoGainControl:   { ideal: true },
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl:  true,
+        channelCount:     1,
+        sampleRate:       48000,
+        sampleSize:       16,
       },
     };
     if (type === "video") {
       constraints.video = {
-        width:       { min: 640, ideal: 1280 },
-        height:      { min: 480, ideal: 720  },
-        frameRate:   { min: 15,  ideal: 30   },
+        // 640×360 — half of 720p: 4× fewer pixels to encode/decode.
+        // H.264 baseline encodes a 360p frame in <1 ms on any HW encoder.
+        // Lower encode latency = fewer buffered frames = tighter A/V sync.
+        // min=30 forces a stable 30 Hz clock — mixed frame rates cause RTP
+        // timestamp jitter that produces subtle A/V drift on PC browsers.
+        width:       { ideal: 640 },
+        height:      { ideal: 360 },
+        frameRate:   { min: 30, ideal: 30, max: 30 },
         aspectRatio: { ideal: 16 / 9 },
         facingMode:  "user",
       };
     }
-    const rawStream = await navigator.mediaDevices.getUserMedia(constraints);
-    // Apply Web Audio processing chain for cleaner voice
-    return createAudioProcessingChain(rawStream);
+    // Return the raw getUserMedia stream directly — no Web Audio pipeline.
+    // See the comment block above for why.
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    // contentHint tells the encoder what to optimise for.
+    // "speech" → voice clarity / pitch preservation (Opus speech mode)
+    // "motion" → low-latency frame pacing, no look-ahead buffering
+    stream.getAudioTracks().forEach((t) => { t.contentHint = "speech"; });
+    stream.getVideoTracks().forEach((t) => { t.contentHint = "motion"; });
+    return stream;
   }, []);
 
   // ── Cleanup call media & state ────────────────────────────────────────────
   const cleanupCall = useCallback((immediate = true) => {
+    // Discard any pre-warmed stream that was never consumed
+    const warm = warmMediaRef.current;
+    warmMediaRef.current = null;
+    if (warm?.promise) warm.promise.then(stopStream).catch(() => {});
+
     const pc = pcRef.current;
     if (pc) {
+      if (pc._jbTimer) { clearInterval(pc._jbTimer); pc._jbTimer = null; }
+      if (pc._fpTimer) { clearInterval(pc._fpTimer); pc._fpTimer = null; }
       pc.getSenders().forEach((sender) => {
         if (sender.track) { try { pc.removeTrack(sender); } catch (_) {} }
       });
     }
     const stream = localStreamRef.current;
     if (stream) {
-      // Remove visibilitychange listener before closing context
-      if (stream._resumeListener) {
-        try { document.removeEventListener("visibilitychange", stream._resumeListener); } catch (_) {}
-      }
-      // Close the Web Audio processing context + noise gate timer
-      if (stream._gateInterval) {
-        try { clearInterval(stream._gateInterval); } catch (_) {}
-      }
-      if (stream._audioCtx) {
-        try { stream._audioCtx.close(); } catch (_) {}
-      }
-      // Stop both processed and raw tracks
-      if (stream._rawStream) {
-        stream._rawStream.getTracks().forEach((t) => t.stop());
-      }
-      stream.getTracks().forEach((t) => t.stop());
+      stopStream(stream);
       localStreamRef.current = null;
     }
+    // Clear stable remote stream tracks. Don't stop remote tracks — we don't own them.
+    // Reset to a fresh empty MediaStream rather than null: rebuildRemoteStream() guards
+    // with `if (!stable) return`, so setting null here would silently drop all incoming
+    // tracks on the second (and every subsequent) call without recreating the PC.
+    const stableRemote = remoteStreamStableRef.current;
+    if (stableRemote) {
+      stableRemote.getTracks().forEach((t) => { try { stableRemote.removeTrack(t); } catch (_) {} });
+    }
+    remoteStreamStableRef.current = new MediaStream();
     if (immediate) setCallState("idle");
     setCallType(null);
     callTypeRef.current = null;
@@ -410,10 +554,46 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
 
   const createPeerConnection = useCallback(() => {
     if (pcRef.current) pcRef.current.close();
+    // Real call PC takes over — close warm PC so its TURN allocations are freed
+    if (warmPcRef.current) { warmPcRef.current.close(); warmPcRef.current = null; }
 
     console.log("[WebRTC] Creating PeerConnection with", iceConfigRef.current.iceServers?.length, "ICE servers");
-    const pc = new RTCPeerConnection(iceConfigRef.current);
+    const pc = new RTCPeerConnection({
+      ...iceConfigRef.current,
+      // Bundle audio + video onto one ICE connection — halves candidate pairs,
+      // makes ICE complete ~200 ms faster than the default "balanced" policy.
+      bundlePolicy: "max-bundle",
+      rtcpMuxPolicy: "require",
+      // 6 candidates is enough to cover host + srflx + relay for one interface.
+      // Larger pools waste sockets and TURN allocations, especially on mobile.
+      iceCandidatePoolSize: 6,
+    });
     pcRef.current = pc;
+
+    // Pin receiver jitter buffers to zero added target delay.
+    // Chrome's adaptive algorithm silently increases the VIDEO jitter buffer over
+    // time (while audio stays at ~20 ms), causing progressive A/V drift — the
+    // longer the call the more the video lags behind audio.
+    // Clamping both receivers to jitterBufferTarget=0 prevents this.
+    // Called from ontrack (immediately per receiver) and refreshed every 4 s in
+    // onconnectionstatechange so Chrome cannot raise it back mid-call.
+    const pinJitterBuffers = () => {
+      try {
+        pc.getReceivers().forEach((recv) => {
+          if ("jitterBufferTarget" in recv) recv.jitterBufferTarget = 0;
+          // playoutDelayHint controls the decoder render queue (separate from the
+          // jitter buffer). Without this, browsers add 80–150 ms of decode-to-render
+          // buffering on top of the jitter buffer. Setting it to 0 collapses that
+          // stage and gives the minimum achievable end-to-end latency.
+          if ("playoutDelayHint" in recv) recv.playoutDelayHint = 0;
+        });
+      } catch (_) {}
+    };
+
+    // Fresh stable stream for this PeerConnection. Tracks are added/removed in
+    // place — the DOM element's srcObject stays the same object so the decoder
+    // never resets, guaranteeing frame-accurate A/V sync on PC browsers.
+    remoteStreamStableRef.current = new MediaStream();
 
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) {
@@ -438,7 +618,7 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
             console.warn("[ICE] setConfiguration failed (OK on some browsers):", e.message);
           }
           pc.createOffer({ iceRestart: true }).then((offer) => {
-            offer.sdp = optimizeOpusSdp(offer.sdp);
+            offer.sdp = processSdp(offer.sdp);
             pc.setLocalDescription(offer).then(() => {
               sendSignal({ type: "offer", roomId, payload: { sdp: pc.localDescription } });
               console.log("[ICE] Restart offer sent");
@@ -457,9 +637,26 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
       console.log("[WebRTC] Connection state:", pc.connectionState);
       if (pc.connectionState === "connected") {
         setIsConnected(true);
+        // Apply sender parameters immediately on DTLS connected — by this point
+        // encodings exist and setParameters succeeds without a timeout race.
+        tuneAudioSenders(pc);
+        tuneVideoSenders(pc);
+        // Pin jitter buffers at connect and then every 12 s.
+        // Chrome's adaptive jitter buffer algorithm collects RTT samples for the
+        // first ~10-15 s and then *raises* the video jitter buffer target to
+        // absorb estimated network jitter — audio stays at ~20 ms while video
+        // climbs to 150-400 ms, causing the A/V delay that starts at ~15-20 s.
+        // Re-pinning every 12 s stays ahead of that growth window.
+        pinJitterBuffers();
+        pc._jbTimer = setInterval(pinJitterBuffers, 12_000);
+        // Poll video sender quality stats every 3 s; lower maxFramerate under
+        // CPU pressure so the encoder queue never grows (WhatsApp frame-drop trick).
+        pc._fpTimer = setInterval(() => adaptVideoSenderParams(pc), 3_000);
       } else if (["failed", "closed"].includes(pc.connectionState)) {
         // "disconnected" is transient — browser retries ICE automatically.
         // Only mark disconnected on terminal states to avoid false UI flickers.
+        if (pc._jbTimer) { clearInterval(pc._jbTimer); pc._jbTimer = null; }
+        if (pc._fpTimer) { clearInterval(pc._fpTimer); pc._fpTimer = null; }
         setIsConnected(false);
       }
     };
@@ -468,12 +665,28 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
       console.log("[WebRTC] Remote track:", event.track.kind, "muted:", event.track.muted);
 
       const rebuildRemoteStream = () => {
+        const stable = remoteStreamStableRef.current;
+        if (!stable) return;
         const allTracks = pc.getReceivers().map((r) => r.track).filter(Boolean);
-        setRemoteStream(allTracks.length ? new MediaStream(allTracks) : null);
+        const existing = new Set(stable.getTracks());
+        const incoming = new Set(allTracks);
+        // Add new tracks in-place — browser picks them up on the existing
+        // srcObject immediately with no buffer reset.
+        allTracks.forEach((t) => { if (!existing.has(t)) stable.addTrack(t); });
+        // Remove departed tracks
+        existing.forEach((t) => { if (!incoming.has(t)) stable.removeTrack(t); });
+        // Only notify React on null → stream transition. Same-object updates are
+        // invisible to useState but visible to the DOM (addTrack is live).
+        setRemoteStream((prev) => {
+          if (allTracks.length === 0) return null;
+          return prev ?? stable; // null → stable causes re-render; stable → stable skips it
+        });
       };
 
       // Rebuild stream immediately
       rebuildRemoteStream();
+      // Pin this receiver's jitter buffer the moment we know about it.
+      pinJitterBuffers();
 
       // Also listen for unmute — tracks start muted before media flows.
       // When the first frames arrive, unmute fires and we rebuild so
@@ -503,14 +716,17 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
       try {
         if (isNegotiating.current) return;
         isNegotiating.current = true;
-        // Apply VP9 preference on video transceivers before generating the offer
+        // Apply codec preferences on all transceivers before generating the offer
         applyVideoCodecPreferences(pc);
+        applyAudioCodecPreferences(pc);
         const offer = await pc.createOffer();
-        offer.sdp = optimizeOpusSdp(offer.sdp);
+        offer.sdp = processSdp(offer.sdp);
         await pc.setLocalDescription(offer);
         sendSignal({ type: "offer", roomId, payload: { sdp: pc.localDescription } });
-        // Tune audio + video sender bitrates after renegotiation
-        setTimeout(() => { tuneAudioSenders(pc); tuneVideoSenders(pc); }, 500);
+        // Tune sender bitrates immediately — no timeout so video starts at
+        // target quality from the first encoded frame.
+        tuneAudioSenders(pc);
+        tuneVideoSenders(pc);
       } catch (err) {
         console.error("[WebRTC] Renegotiation failed:", err);
       } finally {
@@ -624,7 +840,7 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
     dataChannelRef.current = dc;
     try {
       const offer = await pc.createOffer();
-      offer.sdp = optimizeOpusSdp(offer.sdp);
+      offer.sdp = processSdp(offer.sdp);
       await pc.setLocalDescription(offer);
       sendSignal({ type: "offer", roomId, payload: { sdp: pc.localDescription } });
     } finally {
@@ -664,20 +880,39 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
           isNegotiating.current = false;
         }
         await pc.setRemoteDescription(new RTCSessionDescription(msg.payload.sdp));
-        // Add any local media tracks not yet on the connection
+        // Add any local media tracks not yet on the connection, using
+        // addTransceiver(kind) + replaceTrack so all transceivers are created
+        // synchronously and codec prefs apply before the answer is generated.
         const ls = localStreamRef.current;
         if (ls) {
-          const senderIds = new Set(pc.getSenders().map((s) => s.track?.id).filter(Boolean));
-          ls.getTracks().forEach((t) => { if (!senderIds.has(t.id)) pc.addTrack(t, ls); });
+          ls.getTracks().forEach((t) => {
+            // After setRemoteDescription, the remote's new m-sections already have
+            // matching receiver transceivers with sender.track=null.
+            // Plug our track into those instead of calling addTransceiver, which
+            // would create transceivers outside the current offer's m-sections and
+            // therefore excluded from the answer — causing one-way media.
+            const reuse = pc.getTransceivers().find(
+              (x) => !x.stopped && x.sender.track === null && x.receiver.track?.kind === t.kind
+            );
+            if (reuse) {
+              reuse.direction = "sendrecv";
+              reuse.sender.replaceTrack(t).catch(() => {});
+            } else {
+              // Fresh PC (first call) or no matching transceiver — create one
+              const tc = pc.addTransceiver(t.kind, { direction: "sendrecv", streams: [ls] });
+              tc.sender.replaceTrack(t).catch(() => {});
+            }
+          });
         }
-        // Prefer VP9 before generating the answer
+        // Apply codec preferences before generating the answer
         applyVideoCodecPreferences(pc);
+        applyAudioCodecPreferences(pc);
         const answer = await pc.createAnswer();
-        answer.sdp = optimizeOpusSdp(answer.sdp);
+        answer.sdp = processSdp(answer.sdp);
         await pc.setLocalDescription(answer);
         sendSignal({ type: "answer", roomId, payload: { sdp: pc.localDescription } });
-        // Tune audio + video sender bitrates after the answer
-        setTimeout(() => { tuneAudioSenders(pc); tuneVideoSenders(pc); }, 500);
+        tuneAudioSenders(pc);
+        tuneVideoSenders(pc);
         break;
       }
       case "answer": {
@@ -757,7 +992,13 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
     setCallType(type);
     setCallState("outgoing-ringing");
     dcSend({ type: "call-invite", callType: type });
-  }, [dcSend]);
+    // Pre-warm: start getUserMedia immediately so the stream is ready by the
+    // time the peer accepts — eliminates the media-acquisition wait from
+    // the perceived call setup time.
+    const promise = acquireMedia(type);
+    warmMediaRef.current = { type, promise };
+    promise.catch(() => { if (warmMediaRef.current?.promise === promise) warmMediaRef.current = null; });
+  }, [dcSend, acquireMedia]);
 
   /** Accept incoming call. */
   const acceptCall = useCallback(async () => {
@@ -765,7 +1006,17 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
     const type = callTypeRef.current;
     setCallState("connecting");
     try {
-      const stream = await acquireMedia(type);
+      // Consume the pre-warmed stream (started in handleCallInvite) if it matches
+      // the call type; fall back to fresh acquisition if something went wrong.
+      const warm = warmMediaRef.current;
+      warmMediaRef.current = null;
+      let stream;
+      if (warm?.type === type && warm.promise) {
+        try { stream = await warm.promise; } catch { stream = await acquireMedia(type); }
+      } else {
+        if (warm?.promise) warm.promise.then(stopStream).catch(() => {});
+        stream = await acquireMedia(type);
+      }
       localStreamRef.current = stream;
       // Don't add tracks to PC yet — the caller will send a renegotiation
       // offer after receiving call-accept, and we add our tracks when
@@ -783,6 +1034,7 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
   /** Reject incoming call. */
   const rejectCall = useCallback(() => {
     if (callStateRef.current !== "incoming-ringing") return;
+    // cleanupCall already discards warmMediaRef, so just call that
     dcSend({ type: "call-reject" });
     cleanupCall(true);
   }, [dcSend, cleanupCall]);
@@ -803,25 +1055,59 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
     callTypeRef.current = type;
     setCallType(type);
     setCallState("incoming-ringing");
-  }, [dcSend]);
+    // Pre-warm while the ringing UI shows — by the time the user taps Accept
+    // getUserMedia is already resolved and the call connects instantly.
+    const promise = acquireMedia(type);
+    warmMediaRef.current = { type, promise };
+    promise.catch(() => { if (warmMediaRef.current?.promise === promise) warmMediaRef.current = null; });
+  }, [dcSend, acquireMedia]);
 
   /** Handle call-accept from peer. */
   const handleCallAccepted = useCallback(async (type) => {
     if (callStateRef.current !== "outgoing-ringing") return;
     setCallState("connecting");
     try {
-      const stream = await acquireMedia(type || callTypeRef.current);
+      const resolvedType = type || callTypeRef.current;
+      const warm = warmMediaRef.current;
+      warmMediaRef.current = null;
+      let stream;
+      if (warm?.type === resolvedType && warm.promise) {
+        try { stream = await warm.promise; } catch { stream = await acquireMedia(resolvedType); }
+      } else {
+        if (warm?.promise) warm.promise.then(stopStream).catch(() => {});
+        stream = await acquireMedia(resolvedType);
+      }
       localStreamRef.current = stream;
       const pc = pcRef.current;
       if (pc) {
-        stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-        // Prefer VP9 for video transceivers before the renegotiation offer fires
+        // Reuse existing transceivers when available (second+ call on the same PC).
+        // After cleanupCall runs removeTrack, each sender has track=null but the
+        // transceiver+m-section still exists.  Calling addTransceiver(kind) here
+        // would create a SECOND transceiver for that kind — those new transceivers
+        // are not present in the next offer and the answerer's addTransceiver calls
+        // (which happen after setRemoteDescription) are excluded from the answer
+        // per JSEP, so the answerer's media never reaches the caller.
+        // Reusing the empty sender avoids m-section accumulation entirely.
+        stream.getTracks().forEach((t) => {
+          const reuse = pc.getTransceivers().find(
+            (x) => !x.stopped && x.sender.track === null && x.receiver.track?.kind === t.kind
+          );
+          if (reuse) {
+            reuse.direction = "sendrecv";
+            reuse.sender.replaceTrack(t).catch(() => {});
+          } else {
+            const tc = pc.addTransceiver(t.kind, { direction: "sendrecv", streams: [stream] });
+            tc.sender.replaceTrack(t).catch(() => {});
+          }
+        });
+        // Apply codec preferences before the renegotiation offer fires
         applyVideoCodecPreferences(pc);
-        // Tune audio + video bitrates after the connection becomes active
-        setTimeout(() => { tuneAudioSenders(pc); tuneVideoSenders(pc); }, 500);
+        applyAudioCodecPreferences(pc);
+        tuneAudioSenders(pc);
+        tuneVideoSenders(pc);
       }
       setIsMicOn(true);
-      setIsCameraOn((type || callTypeRef.current) === "video");
+      setIsCameraOn(resolvedType === "video");
       // callStartTime & "active" state are set by ontrack when remote media arrives
     } catch (err) {
       console.error("[Call] getUserMedia failed:", err);
@@ -882,7 +1168,7 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
         stream.addTrack(vt);
         pc.addTrack(vt, stream);
         applyVideoCodecPreferences(pc);
-        setTimeout(() => tuneVideoSenders(pc), 500);
+        tuneVideoSenders(pc);
       }
       callTypeRef.current = "video";
       setCallType("video");
@@ -895,16 +1181,9 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
   // ── Cleanup on unmount ────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
-      const s = localStreamRef.current;
-      if (s) {
-        // Full audio-chain teardown (mirrors cleanupCall logic)
-        if (s._resumeListener) { try { document.removeEventListener("visibilitychange", s._resumeListener); } catch (_) {} }
-        if (s._gateInterval)   { try { clearInterval(s._gateInterval);                                       } catch (_) {} }
-        if (s._audioCtx)       { try { s._audioCtx.close();                                                  } catch (_) {} }
-        if (s._rawStream)      { s._rawStream.getTracks().forEach((t) => t.stop()); }
-        s.getTracks().forEach((t) => t.stop());
-      }
+      stopStream(localStreamRef.current);
       pcRef.current?.close();
+      if (warmPcRef.current) { warmPcRef.current.close(); warmPcRef.current = null; }
     };
   }, []);
 
@@ -932,5 +1211,7 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
     // State
     localStreamRef, remoteStream, isConnected,
     callState, callType, callStartTime, isMicOn, isCameraOn,
+    // Exposed for CallScreen stats (RTT + audio level)
+    peerConnectionRef: pcRef,
   };
 }

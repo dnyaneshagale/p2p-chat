@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Zap, Shuffle, AlertTriangle, ArrowRight, Loader2, Shield,
-  Sun, Moon, Lock, Eye, Phone, ChevronDown, CornerUpLeft,
+  Sun, Moon, Lock, Eye, Phone, ChevronDown, CornerUpLeft, Copy, Check,
 } from "lucide-react";
 
 // ── Feature chips ──────────────────────────────────────────────────────────
@@ -72,7 +72,14 @@ export default function JoinRoom({ onJoin, isConnecting, joinError, onClearError
   const [userName, setUserName] = useState("");
   const [roomId, setRoomId]     = useState("");
   const [error, setError]       = useState("");
+  const [copied, setCopied]     = useState(false);
   const nameInputRef = useRef(null);
+
+  // Auto-fill room code from URL hash, e.g. chat-p2p-x.web.app/#ROOM123
+  useEffect(() => {
+    const hash = window.location.hash.replace("#", "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
+    if (hash) setRoomId(hash);
+  }, []);
 
   // Sync server-side errors into local error state so they show in the same slot
   useEffect(() => {
@@ -81,13 +88,14 @@ export default function JoinRoom({ onJoin, isConnecting, joinError, onClearError
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (isConnecting) return;   // prevent double-join
     setError("");
     onClearError?.();
     const name = userName.trim();
     const room = roomId.trim();
     if (!name) { setError("NAME IS REQUIRED."); return; }
     if (!room)  { setError("ROOM CODE IS REQUIRED."); return; }
-    if (room.length < 4) { setError("ROOM CODE MUST BE AT LEAST 4 CHARS."); return; }
+    if (room.length < 5) { setError("ROOM CODE MUST BE AT LEAST 5 CHARS."); return; }
     onJoin(room, name);
   };
 
@@ -96,8 +104,16 @@ export default function JoinRoom({ onJoin, isConnecting, joinError, onClearError
     setRoomId(Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join(""));
   };
 
+  const copyRoomCode = useCallback(() => {
+    if (!roomId) return;
+    navigator.clipboard.writeText(roomId).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }, [roomId]);
+
   const focusForm = () => {
-    nameInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    nameInputRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     nameInputRef.current?.focus();
   };
 
@@ -262,6 +278,7 @@ export default function JoinRoom({ onJoin, isConnecting, joinError, onClearError
                     onChange={(e) => setUserName(e.target.value)}
                     maxLength={30}
                     disabled={isConnecting}
+                    aria-label="Your name"
                     autoFocus
                   />
                 </div>
@@ -275,10 +292,24 @@ export default function JoinRoom({ onJoin, isConnecting, joinError, onClearError
                       className="input-field font-mono font-bold text-base uppercase tracking-[0.25em] flex-1"
                       placeholder="ROOM01"
                       value={roomId}
-                      onChange={(e) => setRoomId(e.target.value.toUpperCase())}
+                      onChange={(e) => setRoomId(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
                       maxLength={20}
                       disabled={isConnecting}
+                      aria-label="Room code"
                     />
+                    {roomId && (
+                      <button
+                        type="button"
+                        onClick={copyRoomCode}
+                        disabled={isConnecting}
+                        title="Copy room code"
+                        aria-label="Copy room code"
+                        className="btn-ghost text-xs px-3 py-2.5 whitespace-nowrap
+                                   flex items-center gap-1.5 active:scale-95 !transition-all !duration-100"
+                      >
+                        {copied ? <Check size={13} strokeWidth={2.5} className="text-brut-lime" /> : <Copy size={13} strokeWidth={2.5} />}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={generateRoomCode}

@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="frontend/p2p-chat-icon.svg" alt="P2P Chat Icon" width="120" height="120" />
+
 # ⚡ P2P Chat
 
 **Browser-native encrypted peer-to-peer chat, calls, and file transfer — WhatsApp-quality audio/video, zero servers in the loop.**

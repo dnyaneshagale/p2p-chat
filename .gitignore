@@ -13,7 +13,8 @@ frontend/.env.test.local
 # Firebase CLI cache & deploy artefacts
 .firebase/
 frontend/.firebase/
-
+frontend/android
+frontend/capacitor.config.ts
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -60,6 +61,18 @@ replay_pid*
 ehthumbs.db
 Thumbs.db
 desktop.ini
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Android / Capacitor build artefacts
+# ─────────────────────────────────────────────────────────────────────────────
+# Compiled Android outputs — keep the source project, skip build outputs
+frontend/android/.gradle/
+frontend/android/build/
+frontend/android/app/build/
+frontend/android/local.properties
+# Signing keystore — NEVER commit private keys
+*.keystore
+*.jks
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Misc

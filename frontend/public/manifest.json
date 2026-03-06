@@ -1,0 +1,36 @@
+{
+  "short_name": "P2P Chat",
+  "name": "P2P Chat — Secure Peer-to-Peer Messaging",
+  "description": "Encrypted peer-to-peer messaging and video calls. No servers store your messages.",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#FFE100",
+  "background_color": "#000000",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "favicon-32.png",
+      "sizes": "32x32",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "logo192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "logo512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

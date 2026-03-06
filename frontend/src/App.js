@@ -201,6 +201,7 @@ export default function App() {
     switchToVideo, toggleMic, toggleCamera,
     localStreamRef, remoteStream, isConnected,
     callState, callType, callStartTime, isMicOn, isCameraOn,
+    peerConnectionRef,
   } = webrtcActions;
 
   // Sync WebRTC connection state → appStatus
@@ -359,6 +360,7 @@ export default function App() {
           onEndCall={endCall}
           onSwitchToVideo={switchToVideo}
           peerName={peerName}
+          peerConnectionRef={peerConnectionRef}
         />
       )}
     </>
