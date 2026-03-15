@@ -352,6 +352,28 @@ const CHUNK_SIZE = 64 * 1024;
 const BUFFER_HIGH_WATER = 8 * 1024 * 1024;
 const BUFFER_LOW_WATER  = 1 * 1024 * 1024;
 
+function createEmptyIncomingFileState() {
+  return {
+    id: null,
+    name: "",
+    type: "",
+    size: 0,
+    chunks: [],
+    receivedSize: 0,
+    viewOnce: false,
+    lastUiEmit: 0,
+  };
+}
+
+function buildTransferPayload(state, sentBytes = 0, totalBytes = 0, progress = 0) {
+  return {
+    state,
+    sentBytes,
+    totalBytes,
+    progress,
+  };
+}
+
 /**
  * useWebRTC — WebRTC peer connection, data channels, media streams,
  * and WhatsApp-style voice + video call flow.
@@ -383,9 +405,10 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
   // A/V desync when the video track arrives after the audio track.
   const remoteStreamStableRef = useRef(null);
 
-  const incomingFileRef = useRef({
-    name: "", type: "", size: 0, chunks: [], receivedSize: 0, viewOnce: false,
-  });
+  const incomingFileRef = useRef(createEmptyIncomingFileState());
+  const pendingOutgoingFileOffersRef = useRef(new Map());
+  const outgoingFileTransferQueueRef = useRef(Promise.resolve());
+  const acceptedIncomingFilesRef = useRef(new Set());
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [remoteStream, setRemoteStream]   = useState(null);
@@ -509,6 +532,136 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
     stream.getAudioTracks().forEach((t) => { t.contentHint = "speech"; });
     stream.getVideoTracks().forEach((t) => { t.contentHint = "motion"; });
     return stream;
+  }, []);
+
+  const resetIncomingFile = useCallback(() => {
+    incomingFileRef.current = createEmptyIncomingFileState();
+  }, []);
+
+  const emitIncomingTransferStart = useCallback((fileId, payload) => {
+    onMessageRef.current?.({
+      type: "file-transfer-start",
+      id: fileId,
+      from: "Peer",
+      fileName: payload.name,
+      fileType: payload.fileType,
+      timestamp: Date.now(),
+      isSelf: false,
+      viewOnce: !!payload.viewOnce,
+      transfer: buildTransferPayload("receiving", 0, payload.size || 0, 0),
+    });
+  }, []);
+
+  const emitIncomingTransferUpdate = useCallback((fileId, sentBytes, totalBytes) => {
+    onMessageRef.current?.({
+      type: "file-transfer-update",
+      id: fileId,
+      transfer: buildTransferPayload(
+        "receiving",
+        sentBytes,
+        totalBytes,
+        totalBytes > 0 ? Math.min(99, Math.floor((sentBytes / totalBytes) * 100)) : 0
+      ),
+    });
+  }, []);
+
+  const runOutgoingAcceptedFileTransfer = useCallback(async (messageId) => {
+    const offer = pendingOutgoingFileOffersRef.current.get(messageId);
+    if (!offer) return;
+
+    const {
+      file,
+      viewOnce,
+      onProgress,
+      totalBytes,
+      safeFileName,
+      safeFileType,
+    } = offer;
+    let sentBytes = 0;
+    const dc = dataChannelRef.current;
+    if (!dc || dc.readyState !== "open") {
+      onProgress?.({ stage: "error" });
+      pendingOutgoingFileOffersRef.current.delete(messageId);
+      return;
+    }
+
+    try {
+      onProgress?.({
+        sentBytes,
+        totalBytes,
+        progress: totalBytes > 0 ? 0 : 100,
+        stage: "starting",
+      });
+      dc.send(JSON.stringify({
+        type: "file-meta",
+        name: safeFileName,
+        fileType: safeFileType,
+        size: file.size,
+        viewOnce: !!viewOnce,
+        messageId,
+      }));
+      onProgress?.({
+        sentBytes,
+        totalBytes,
+        progress: totalBytes > 0 ? 0 : 100,
+        stage: "sending",
+      });
+
+      dc.bufferedAmountLowThreshold = BUFFER_LOW_WATER;
+      const buffer = await file.arrayBuffer();
+      let offset = 0;
+      while (offset < buffer.byteLength) {
+        if (dc.readyState !== "open") {
+          onProgress?.({ stage: "error" });
+          pendingOutgoingFileOffersRef.current.delete(messageId);
+          return;
+        }
+        if (dc.bufferedAmount > BUFFER_HIGH_WATER) {
+          onProgress?.({
+            sentBytes,
+            totalBytes,
+            progress: totalBytes > 0 ? Math.min(99, Math.floor((sentBytes / totalBytes) * 100)) : 100,
+            stage: "buffering",
+          });
+          await new Promise((resolve) => {
+            const prev = dc.onbufferedamountlow;
+            dc.onbufferedamountlow = () => { dc.onbufferedamountlow = prev ?? null; resolve(); };
+          });
+          if (dc.readyState !== "open") {
+            onProgress?.({ stage: "error" });
+            pendingOutgoingFileOffersRef.current.delete(messageId);
+            return;
+          }
+        }
+        const end = Math.min(offset + CHUNK_SIZE, buffer.byteLength);
+        dc.send(buffer.slice(offset, end));
+        sentBytes += (end - offset);
+        offset = end;
+        onProgress?.({
+          sentBytes,
+          totalBytes,
+          progress: totalBytes > 0 ? Math.min(99, Math.floor((sentBytes / totalBytes) * 100)) : 100,
+          stage: "sending",
+        });
+      }
+      dc.send(JSON.stringify({ type: "file-end" }));
+      onProgress?.({
+        sentBytes: totalBytes,
+        totalBytes,
+        progress: 100,
+        stage: "done",
+      });
+    } catch (err) {
+      onProgress?.({ stage: "error" });
+      console.error("[sendFile] Transfer failed:", err.message);
+      try {
+        if (dc.readyState === "open") {
+          dc.send(JSON.stringify({ type: "file-cancel", messageId }));
+        }
+      } catch (_) {}
+    } finally {
+      pendingOutgoingFileOffersRef.current.delete(messageId);
+    }
   }, []);
 
   // ── Cleanup call media & state ────────────────────────────────────────────
@@ -757,7 +910,14 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
       } catch (_) {}
     };
 
-    channel.onclose = () => setIsConnected(false);
+    channel.onclose = () => {
+      setIsConnected(false);
+      pendingOutgoingFileOffersRef.current.forEach(({ onProgress }) => {
+        onProgress?.({ stage: "error" });
+      });
+      pendingOutgoingFileOffersRef.current.clear();
+      acceptedIncomingFilesRef.current.clear();
+    };
     channel.onerror = (err) => console.error("[DataChannel] Error:", err);
 
     channel.onmessage = (event) => {
@@ -766,18 +926,88 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
       try {
         const p = JSON.parse(event.data);
 
-        // File transfer
-        if (p.type === "file-meta") {
-          incomingFileRef.current = {
-            name: p.name, type: p.fileType, size: p.size,
-            chunks: [], receivedSize: 0, viewOnce: !!p.viewOnce,
-          };
+        if (p.type === "file-offer-response") {
+          const pending = pendingOutgoingFileOffersRef.current.get(p.messageId);
+          if (!pending) return;
+
+          if (p.accept === false) {
+            pending.onProgress?.({ stage: "error" });
+            pendingOutgoingFileOffersRef.current.delete(p.messageId);
+            return;
+          }
+
+          outgoingFileTransferQueueRef.current = outgoingFileTransferQueueRef.current
+            .catch(() => {})
+            .then(() => runOutgoingAcceptedFileTransfer(p.messageId));
           return;
         }
-        if (p.type === "file-end") { assembleFile(); return; }
+
+        if (p.type === "file-offer") {
+          onMessageRef.current?.({
+            type: "file-offer",
+            id: p.messageId,
+            from: p.from || "Peer",
+            fileName: p.name,
+            fileType: p.fileType,
+            timestamp: p.timestamp || Date.now(),
+            isSelf: false,
+            viewOnce: !!p.viewOnce,
+            transfer: {
+              state: "offer",
+              progress: 0,
+              sentBytes: 0,
+              totalBytes: p.size || 0,
+            },
+          });
+          return;
+        }
+
+        // File transfer
+        if (p.type === "file-meta") {
+          if (!acceptedIncomingFilesRef.current.has(p.messageId)) {
+            console.warn("[DataChannel] Ignoring unaccepted file payload:", p.messageId);
+            try {
+              channel.send(JSON.stringify({ type: "file-cancel", messageId: p.messageId }));
+            } catch (_) {}
+            return;
+          }
+          acceptedIncomingFilesRef.current.delete(p.messageId);
+          const fileId = p.messageId ?? (Date.now() + Math.random());
+          incomingFileRef.current = {
+            id: fileId,
+            name: p.name, type: p.fileType, size: p.size,
+            chunks: [], receivedSize: 0, viewOnce: !!p.viewOnce,
+            lastUiEmit: 0,
+          };
+          emitIncomingTransferStart(fileId, p);
+          return;
+        }
+        if (p.type === "file-end") {
+          const fileId = incomingFileRef.current?.id;
+          assembleFile();
+          if (fileId != null) {
+            channel.send(JSON.stringify({
+              type: "message-ack",
+              messageId: fileId,
+              status: "delivered",
+              timestamp: Date.now(),
+            }));
+          }
+          return;
+        }
         if (p.type === "file-cancel") {
           console.warn("[DataChannel] Peer cancelled file transfer.");
-          incomingFileRef.current = { name: "", type: "", size: 0, chunks: [], receivedSize: 0, viewOnce: false };
+          const f = incomingFileRef.current;
+          const targetId = p.messageId ?? f.id;
+          if (targetId) {
+            onMessageRef.current?.({
+              type: "file-transfer-update",
+              id: targetId,
+              transfer: { state: "failed" },
+            });
+          }
+          acceptedIncomingFilesRef.current.delete(targetId);
+          resetIncomingFile();
           return;
         }
 
@@ -793,11 +1023,41 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
           return;
         }
 
+        // Reaction toggle
+        if (p.type === "reaction-toggle") {
+          onMessageRef.current?.({
+            type: "reaction-toggle",
+            messageId: p.messageId,
+            emoji: p.emoji,
+            from: p.from ?? "Peer",
+            timestamp: p.timestamp ?? Date.now(),
+          });
+          return;
+        }
+
+        if (p.type === "message-ack") {
+          onMessageRef.current?.({
+            type: "delivery-update",
+            messageId: p.messageId,
+            status: p.status || "delivered",
+            timestamp: p.timestamp ?? Date.now(),
+          });
+          return;
+        }
+
         // Chat message
         onMessageRef.current?.({
-          id: Date.now(), from: p.from ?? "Peer", text: p.text,
+          id: p.id ?? Date.now(), from: p.from ?? "Peer", text: p.text,
           replyTo: p.replyTo ?? null, timestamp: p.timestamp ?? Date.now(), isSelf: false,
         });
+        if (p.id != null) {
+          channel.send(JSON.stringify({
+            type: "message-ack",
+            messageId: p.id,
+            status: "delivered",
+            timestamp: Date.now(),
+          }));
+        }
       } catch {
         onMessageRef.current?.({
           id: Date.now(), from: "Peer", text: event.data,
@@ -805,24 +1065,43 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
         });
       }
     };
-  }, []);
+  }, [emitIncomingTransferStart, resetIncomingFile, runOutgoingAcceptedFileTransfer]);
 
   // ── File chunking helpers ─────────────────────────────────────────────────
   const handleIncomingChunk = (buffer) => {
     const f = incomingFileRef.current;
     f.chunks.push(buffer);
     f.receivedSize += buffer.byteLength;
+    const now = Date.now();
+    if (!f.id) return;
+    // Throttle UI updates to avoid re-rendering on every binary chunk.
+    if (now - f.lastUiEmit < 120 && f.receivedSize < f.size) return;
+    f.lastUiEmit = now;
+    emitIncomingTransferUpdate(f.id, f.receivedSize, f.size || 0);
   };
 
   const assembleFile = () => {
-    const { name, type, chunks, viewOnce } = incomingFileRef.current;
+    const { id, name, type, chunks, viewOnce, size } = incomingFileRef.current;
     const blob = new Blob(chunks, { type });
     const url = URL.createObjectURL(blob);
     onMessageRef.current?.({
-      id: Date.now(), from: "Peer", fileUrl: url, fileName: name, fileType: type,
-      timestamp: Date.now(), isSelf: false, viewOnce: !!viewOnce,
+      type: "file-transfer-complete",
+      id,
+      from: "Peer",
+      fileUrl: url,
+      fileName: name,
+      fileType: type,
+      timestamp: Date.now(),
+      isSelf: false,
+      viewOnce: !!viewOnce,
+      transfer: {
+        state: "sent",
+        progress: 100,
+        sentBytes: size || blob.size,
+        totalBytes: size || blob.size,
+      },
     });
-    incomingFileRef.current = { name: "", type: "", size: 0, chunks: [], receivedSize: 0, viewOnce: false };
+    resetIncomingFile();
   };
 
   // ── Public: Initiate P2P ──────────────────────────────────────────────────
@@ -933,52 +1212,93 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
   const sendChatMessage = useCallback((text, replyTo = null) => {
     const dc = dataChannelRef.current;
     if (!dc || dc.readyState !== "open") return null;
-    const msg = { type: "chat", from: userName, text, replyTo, timestamp: Date.now() };
+    const msg = {
+      type: "chat",
+      id: Date.now() + Math.random(),
+      from: userName,
+      text,
+      replyTo,
+      timestamp: Date.now(),
+    };
     dc.send(JSON.stringify(msg));
     return msg;
   }, [userName]);
 
+  // ── Public: Toggle reaction on a message ─────────────────────────────────
+  const sendReactionToggle = useCallback((messageId, emoji) => {
+    const dc = dataChannelRef.current;
+    if (!dc || dc.readyState !== "open") return false;
+    dc.send(JSON.stringify({
+      type: "reaction-toggle",
+      messageId,
+      emoji,
+      from: userName,
+      timestamp: Date.now(),
+    }));
+    return true;
+  }, [userName]);
+
   // ── Public: Send file ─────────────────────────────────────────────────────
-  const sendFile = useCallback(async (file, viewOnce = false) => {
+  const sendFile = useCallback(async (file, viewOnce = false, onProgress, messageId) => {
     const dc = dataChannelRef.current;
     if (!dc || dc.readyState !== "open") return;
+    let stableMessageId = messageId ?? (Date.now() + Math.random());
+    const safeFileName = file?.name || "file";
+    const safeFileType = file?.type || "application/octet-stream";
     try {
+      const totalBytes = file.size || 0;
+
+      onProgress?.({
+        sentBytes: 0,
+        totalBytes,
+        progress: 0,
+        stage: "offer",
+      });
+      pendingOutgoingFileOffersRef.current.set(stableMessageId, {
+        file,
+        viewOnce,
+        onProgress,
+        totalBytes,
+        safeFileName,
+        safeFileType,
+      });
       dc.send(JSON.stringify({
-        type: "file-meta", name: file.name, fileType: file.type,
-        size: file.size, viewOnce: !!viewOnce,
+        type: "file-offer",
+        messageId: stableMessageId,
+        name: safeFileName,
+        fileType: safeFileType,
+        size: file.size,
+        viewOnce: !!viewOnce,
+        from: userNameRef.current,
+        timestamp: Date.now(),
       }));
-      dc.bufferedAmountLowThreshold = BUFFER_LOW_WATER;
-      const buffer = await file.arrayBuffer();
-      let offset = 0;
-      while (offset < buffer.byteLength) {
-        // Abort if the channel closed while we were waiting on backpressure
-        if (dc.readyState !== "open") {
-          console.warn("[sendFile] DataChannel closed mid-transfer, aborting");
-          return;
-        }
-        if (dc.bufferedAmount > BUFFER_HIGH_WATER) {
-          await new Promise((resolve) => {
-            const prev = dc.onbufferedamountlow;
-            dc.onbufferedamountlow = () => { dc.onbufferedamountlow = prev ?? null; resolve(); };
-          });
-          // Re-check after waiting
-          if (dc.readyState !== "open") {
-            console.warn("[sendFile] DataChannel closed while draining buffer, aborting");
-            return;
-          }
-        }
-        dc.send(buffer.slice(offset, offset + CHUNK_SIZE));
-        offset += CHUNK_SIZE;
-      }
-      dc.send(JSON.stringify({ type: "file-end" }));
     } catch (err) {
+      onProgress?.({ stage: "error" });
       console.error("[sendFile] Transfer failed:", err.message);
       // Attempt to notify the peer that the transfer was cancelled
       try {
-        if (dc.readyState === "open") dc.send(JSON.stringify({ type: "file-cancel" }));
+        if (dc.readyState === "open") {
+          dc.send(JSON.stringify({ type: "file-cancel", messageId: stableMessageId }));
+        }
       } catch (_) {}
+      pendingOutgoingFileOffersRef.current.delete(stableMessageId);
       throw err; // re-throw so caller can show an error
     }
+  }, []);
+
+  // ── Public: Accept/decline incoming file offer ───────────────────────────
+  const sendFileOfferDecision = useCallback((messageId, accept) => {
+    const dc = dataChannelRef.current;
+    if (!dc || dc.readyState !== "open" || messageId == null) return false;
+    if (accept) acceptedIncomingFilesRef.current.add(messageId);
+    else acceptedIncomingFilesRef.current.delete(messageId);
+    dc.send(JSON.stringify({
+      type: "file-offer-response",
+      messageId,
+      accept: !!accept,
+      timestamp: Date.now(),
+    }));
+    return true;
   }, []);
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1203,7 +1523,7 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
   return {
     initiatePeerConnection, handleSignalMessage,
     resetPeerConnection,
-    sendChatMessage, sendFile,
+    sendChatMessage, sendFile, sendReactionToggle, sendFileOfferDecision,
     // Call management
     initiateCall, acceptCall, rejectCall, endCall,
     handleCallInvite, handleCallAccepted, handleCallRejected, handleCallEnd,

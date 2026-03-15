@@ -56,9 +56,48 @@ export default function App() {
   const [userName, setUserName]         = useState("");
   const [peerName, setPeerName]         = useState("Peer");
   const [messages, setMessages]         = useState([]);
+  // Anchor base index used by virtualized chat list for prepend-safe history loading.
+  const [firstItemIndex, setFirstItemIndex] = useState(10_000);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [appStatus, setAppStatus]       = useState("waiting");
   const [isConnecting, setIsConnecting] = useState(false);
   const [joinError, setJoinError]       = useState("");
+
+  const toggleReaction = useCallback((message, emoji, actor) => {
+    if (!message) return message;
+    const normalized = (Array.isArray(message.reactions) ? message.reactions : []).map((r) => {
+      if (typeof r === "string") return { emoji: r, count: 1, reactors: [] };
+      const reactors = Array.isArray(r.reactors) ? [...r.reactors] : [];
+      return { emoji: r.emoji, count: r.count ?? Math.max(reactors.length, 1), reactors };
+    }).filter((r) => !!r.emoji);
+
+    const targetIdxBefore = normalized.findIndex((r) => r.emoji === emoji);
+    const actorHadTargetBefore = targetIdxBefore >= 0 && normalized[targetIdxBefore].reactors.includes(actor);
+
+    // Enforce one reaction per user: first remove actor from every emoji.
+    let next = normalized.map((r) => {
+      const reactors = r.reactors.filter((x) => x !== actor);
+      return { ...r, reactors, count: Math.max(reactors.length, 0) };
+    }).filter((r) => r.count > 0 || r.reactors.length > 0);
+
+    // If actor clicked the same emoji they already had, treat as remove/toggle-off.
+    if (actorHadTargetBefore) {
+      return { ...message, reactions: next };
+    }
+
+    const targetIdx = next.findIndex((r) => r.emoji === emoji);
+    if (targetIdx >= 0) {
+      next[targetIdx] = {
+        ...next[targetIdx],
+        reactors: [...next[targetIdx].reactors, actor],
+        count: (next[targetIdx].count || 0) + 1,
+      };
+    } else {
+      next.push({ emoji, reactors: [actor], count: 1 });
+    }
+
+    return { ...message, reactions: next };
+  }, []);
   // ── Dark mode ─────────────────────────────────────────────────────────────────────────
   const [darkMode, setDarkMode] = useState(
     () => localStorage.getItem("theme") === "dark"
@@ -104,8 +143,102 @@ export default function App() {
       webrtcRef.current?.handleCallEnd();
       return;
     }
+
+    if (msg.type === "reaction-toggle") {
+      setMessages((prev) => prev.map((m) => (
+        m.id === msg.messageId ? toggleReaction(m, msg.emoji, msg.from || "Peer") : m
+      )));
+      return;
+    }
+
+    if (msg.type === "delivery-update") {
+      setMessages((prev) => prev.map((m) => (
+        m.id === msg.messageId
+          ? {
+              ...m,
+              status: msg.status || "delivered",
+            }
+          : m
+      )));
+      return;
+    }
+
+    if (msg.type === "file-offer") {
+      setMessages((prev) => [...prev, {
+        id: msg.id,
+        from: msg.from || "Peer",
+        fileName: msg.fileName,
+        fileType: msg.fileType,
+        timestamp: msg.timestamp || Date.now(),
+        isSelf: false,
+        viewOnce: !!msg.viewOnce,
+        viewOnceConsumed: false,
+        transfer: msg.transfer,
+      }]);
+      return;
+    }
+
+    // Incoming file transfer progress (receiver-side live preview)
+    if (msg.type === "file-transfer-start") {
+      setMessages((prev) => {
+        const existingIdx = prev.findIndex((m) => m.id === msg.id);
+        if (existingIdx === -1) {
+          return [...prev, {
+            id: msg.id,
+            from: msg.from || "Peer",
+            fileName: msg.fileName,
+            fileType: msg.fileType,
+            timestamp: msg.timestamp || Date.now(),
+            isSelf: false,
+            viewOnce: !!msg.viewOnce,
+            viewOnceConsumed: false,
+            transfer: msg.transfer,
+          }];
+        }
+        return prev.map((m) => (
+          m.id === msg.id
+            ? {
+                ...m,
+                fileName: msg.fileName,
+                fileType: msg.fileType,
+                timestamp: msg.timestamp || m.timestamp,
+                viewOnce: !!msg.viewOnce,
+                viewOnceConsumed: m.viewOnceConsumed ?? false,
+                transfer: msg.transfer,
+              }
+            : m
+        ));
+      });
+      return;
+    }
+    if (msg.type === "file-transfer-update") {
+      setMessages((prev) => prev.map((m) => (
+        m.id === msg.id
+          ? { ...m, transfer: { ...(m.transfer || {}), ...(msg.transfer || {}) } }
+          : m
+      )));
+      return;
+    }
+    if (msg.type === "file-transfer-complete") {
+      setMessages((prev) => prev.map((m) => (
+        m.id === msg.id
+          ? {
+              ...m,
+              fileUrl: msg.fileUrl,
+              fileName: msg.fileName,
+              fileType: msg.fileType,
+              timestamp: msg.timestamp || m.timestamp,
+              viewOnce: !!msg.viewOnce,
+              viewOnceConsumed: m.viewOnceConsumed ?? false,
+              transfer: msg.transfer,
+            }
+          : m
+      )));
+      return;
+    }
+
     setMessages((prev) => [...prev, msg]);
-  }, []);
+  }, [toggleReaction]);
 
   // ── Signaling message router ───────────────────────────────────────────────
   // Only reads refs — no stale closure issues.
@@ -196,7 +329,7 @@ export default function App() {
   webrtcRef.current = webrtcActions;
 
   const {
-    sendChatMessage, sendFile,
+    sendChatMessage, sendFile, sendReactionToggle, sendFileOfferDecision,
     initiateCall, acceptCall, rejectCall, endCall,
     switchToVideo, toggleMic, toggleCamera,
     localStreamRef, remoteStream, isConnected,
@@ -258,6 +391,8 @@ export default function App() {
     setUserName(name);
     setDisplayRoom(roomCode);  // keep original for UI display only
     setMessages([]);
+    setFirstItemIndex(10_000);
+    setHasMoreHistory(false);
     setAppStatus("waiting");
     setIsConnecting(true);
     setRoomId(hashed);         // hashed version flows into useSignaling + useWebRTC
@@ -268,17 +403,30 @@ export default function App() {
     setIsConnecting(false);
   }, [joinRoom]);
 
+  // Placeholder for reverse infinite-history pagination.
+  // When backend pagination is added, prepend older items and decrement firstItemIndex
+  // by the number of prepended messages to keep the viewport anchored.
+  const handleLoadOlderHistory = useCallback(() => {
+    // Example pattern:
+    // const older = await fetchOlderMessages(beforeMessageId);
+    // setMessages((prev) => [...older, ...prev]);
+    // setFirstItemIndex((prev) => prev - older.length);
+    // setHasMoreHistory(older.length > 0);
+    setHasMoreHistory(false);
+  }, []);
+
   // ── Send text message (optimistic UI) ─────────────────────────────────────
   const handleSendMessage = useCallback((text, replyTo) => {
     const sent = sendChatMessage(text, replyTo);
     if (sent) {
       setMessages((prev) => [...prev, {
-        id: Date.now(),
+        id: sent.id,
         from: userName,
         text,
         replyTo,
         timestamp: sent.timestamp,
         isSelf: true,
+        status: "sent",
       }]);
     }
   }, [sendChatMessage, userName]);
@@ -286,24 +434,129 @@ export default function App() {
   // ── Send file (optimistic UI) ──────────────────────────────────────────────
   // viewOnce: if true the receiver can only see the media once, then it's destroyed
   const handleSendFile = useCallback(async (file, viewOnce = false) => {
-    try {
-      await sendFile(file, viewOnce);
-    } catch (err) {
-      console.error("[handleSendFile] Transfer failed:", err.message);
-      return; // don't add a bubble for a failed transfer
-    }
+    const id = Date.now() + Math.random();
     const url = URL.createObjectURL(file);
+    const totalBytes = file.size || 0;
+    const safeFileName = file?.name || "file";
+    const safeFileType = file?.type || "application/octet-stream";
+
     setMessages((prev) => [...prev, {
-      id: Date.now(),
+      id,
       from: userName,
       fileUrl: url,
-      fileName: file.name,
-      fileType: file.type,
+      fileName: safeFileName,
+      fileType: safeFileType,
       timestamp: Date.now(),
       isSelf: true,
       viewOnce,
+      viewOnceConsumed: false,
+      status: "sending",
+      transfer: {
+        state: "offer", // offer | sending | buffering | sent | failed
+        progress: 0,
+        sentBytes: 0,
+        totalBytes,
+      },
     }]);
+
+    const updateTransfer = (patch) => {
+      setMessages((prev) => prev.map((m) => (
+        m.id === id
+          ? {
+              ...m,
+              transfer: {
+                ...(m.transfer || {}),
+                ...patch,
+              },
+            }
+          : m
+      )));
+    };
+
+    try {
+      await sendFile(file, viewOnce, ({ stage, progress, sentBytes, totalBytes: tb }) => {
+        if (stage === "offer") {
+          updateTransfer({
+            state: "offer",
+            progress: 0,
+            sentBytes: 0,
+            totalBytes: tb ?? totalBytes,
+          });
+          return;
+        }
+        if (stage === "error") {
+          updateTransfer({ state: "failed" });
+          return;
+        }
+        if (stage === "done") {
+          setMessages((prev) => prev.map((m) => (
+            m.id === id
+              ? {
+                  ...m,
+                  status: "sent",
+                  transfer: {
+                    ...(m.transfer || {}),
+                    state: "sent",
+                    progress: 100,
+                    sentBytes: tb ?? totalBytes,
+                    totalBytes: tb ?? totalBytes,
+                  },
+                }
+              : m
+          )));
+          return;
+        }
+        updateTransfer({
+          state: stage === "buffering" ? "buffering" : "sending",
+          progress: progress ?? 0,
+          sentBytes: sentBytes ?? 0,
+          totalBytes: tb ?? totalBytes,
+        });
+      }, id);
+    } catch (err) {
+      console.error("[handleSendFile] Transfer failed:", err.message);
+      updateTransfer({ state: "failed" });
+      return;
+    }
   }, [sendFile, userName]);
+
+  const handleRespondToFileOffer = useCallback((messageId, accept) => {
+    if (messageId == null || !accept) return;
+    setMessages((prev) => prev.map((m) => (
+      m.id === messageId
+        ? {
+            ...m,
+            transfer: {
+              ...(m.transfer || {}),
+              state: "receiving",
+              progress: 0,
+            },
+          }
+        : m
+    )));
+    sendFileOfferDecision?.(messageId, accept);
+  }, [sendFileOfferDecision]);
+
+  // ── Toggle reaction (local + peer sync) ──────────────────────────────────
+  const handleToggleReaction = useCallback((messageId, emoji) => {
+    setMessages((prev) => prev.map((m) => (
+      m.id === messageId ? toggleReaction(m, emoji, userName) : m
+    )));
+    sendReactionToggle?.(messageId, emoji);
+  }, [sendReactionToggle, toggleReaction, userName]);
+
+  const handleConsumeViewOnce = useCallback((messageId) => {
+    if (messageId == null) return;
+    setMessages((prev) => prev.map((m) => (
+      m.id === messageId
+        ? {
+            ...m,
+            viewOnceConsumed: true,
+            fileUrl: null,
+          }
+        : m
+    )));
+  }, []);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (!roomId) {
@@ -323,6 +576,12 @@ export default function App() {
         messages={messages}
         onSendMessage={handleSendMessage}
         onSendFile={handleSendFile}
+        onToggleReaction={handleToggleReaction}
+        onRespondToFileOffer={handleRespondToFileOffer}
+        onConsumeViewOnce={handleConsumeViewOnce}
+        onLoadOlderHistory={handleLoadOlderHistory}
+        hasMoreHistory={hasMoreHistory}
+        firstItemIndex={firstItemIndex}
         onStartVoiceCall={() => initiateCall("voice")}
         onStartVideoCall={() => initiateCall("video")}
         onEndCall={endCall}

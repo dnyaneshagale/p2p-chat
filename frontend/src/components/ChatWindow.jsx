@@ -1,7 +1,11 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { Phone, Video, PhoneOff, Eye, EyeOff, Paperclip, Send, X, Upload, Zap, LogOut, Sun, Moon } from "lucide-react";
-import MessageBubble from "./MessageBubble";
+import MessageList from "./MessageList";
 import MediaViewer from "./MediaViewer";
+
+/**
+ * @typedef {import("../types/message").ChatMessage} ChatMessage
+ */
 
 /**
  * ChatWindow
@@ -19,9 +23,15 @@ import MediaViewer from "./MediaViewer";
  *   @param {string}   peerName
  *   @param {string}   roomId
  *   @param {boolean}  isConnected
- *   @param {Array}    messages
+ *   @param {ChatMessage[]} messages
  *   @param {function} onSendMessage    - (text, replyTo) => void
- *   @param {function} onSendFile       - (File) => void
+ *   @param {function} onSendFile       - (File, viewOnce?) => (void|Promise<void>)
+ *   @param {function} onToggleReaction - (messageId, emoji) => void
+ *   @param {function} onRespondToFileOffer - (messageId, accept) => void
+ *   @param {function} onConsumeViewOnce - (messageId) => void
+ *   @param {function=} onLoadOlderHistory
+ *   @param {boolean=}  hasMoreHistory
+ *   @param {number=}   firstItemIndex
  *   @param {function} onStartVoiceCall
  *   @param {function} onStartVideoCall
  *   @param {function} onEndCall
@@ -40,6 +50,12 @@ export default function ChatWindow({
   messages,
   onSendMessage,
   onSendFile,
+  onToggleReaction,
+  onRespondToFileOffer,
+  onConsumeViewOnce,
+  onLoadOlderHistory,
+  hasMoreHistory,
+  firstItemIndex,
   onStartVoiceCall,
   onStartVideoCall,
   onEndCall,
@@ -54,15 +70,34 @@ export default function ChatWindow({
   const [replyTo, setReplyTo]   = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [viewOnce, setViewOnce] = useState(false);
+  const [pendingQueueCount, setPendingQueueCount] = useState(0);
   const [viewerMedia, setViewerMedia] = useState(null); // { url, fileName, fileType, from, timestamp, viewOnce, onDone? }
 
-  const messagesEndRef = useRef(null);
   const fileInputRef   = useRef(null);
+  const sendQueueRef = useRef(Promise.resolve());
 
-  // Auto-scroll to latest message
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  const queueFilesForSend = useCallback((fileList) => {
+    const files = Array.from(fileList || []).filter((f) => !!f);
+    if (!files.length || !isConnected) return;
+
+    const batchViewOnce = viewOnce;
+    setPendingQueueCount((prev) => prev + files.length);
+    sendQueueRef.current = sendQueueRef.current
+      .catch(() => {})
+      .then(async () => {
+        for (const file of files) {
+          try {
+            await Promise.resolve(onSendFile(file, batchViewOnce));
+          } catch (err) {
+            console.error("[ChatWindow] Queued file send failed:", err?.message || err);
+          } finally {
+            setPendingQueueCount((prev) => Math.max(0, prev - 1));
+          }
+        }
+      });
+
+    setViewOnce(false);
+  }, [isConnected, onSendFile, viewOnce]);
 
   // ── Send text message ──────────────────────────────────────────────────────
   const handleSend = () => {
@@ -82,11 +117,8 @@ export default function ChatWindow({
 
   // ── File selection ─────────────────────────────────────────────────────────
   const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      onSendFile(file, viewOnce);
-      setViewOnce(false);   // reset to normal after each send
-    }
+    const files = e.target.files;
+    queueFilesForSend(files);
     e.target.value = "";
   };
 
@@ -94,12 +126,8 @@ export default function ChatWindow({
   const handleDrop = useCallback((e) => {
     e.preventDefault();
     setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file && isConnected) {
-      onSendFile(file, viewOnce);
-      setViewOnce(false);
-    }
-  }, [isConnected, onSendFile, viewOnce]);
+    queueFilesForSend(e.dataTransfer.files);
+  }, [queueFilesForSend]);
 
   const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = () => setIsDragging(false);
@@ -227,7 +255,7 @@ export default function ChatWindow({
       </header>
 
       {/* ── Message list ── */}
-      <main className="flex-1 overflow-y-auto overscroll-y-contain px-2.5 sm:px-4 py-3 sm:py-5 space-y-0.5 sm:space-y-1"
+      <main className="flex-1 overflow-hidden overscroll-y-contain"
             style={{ backgroundImage: "radial-gradient(var(--dot-color) 1px, transparent 1px)", backgroundSize: "18px 18px",
                      WebkitOverflowScrolling: "touch" }}>
         {messages.length === 0 ? (
@@ -242,16 +270,19 @@ export default function ChatWindow({
             </p>
           </div>
         ) : (
-          messages.map((msg) => (
-            <MessageBubble
-              key={msg.id}
-              message={msg}
-              onReply={setReplyTo}
-              onOpenMedia={setViewerMedia}
-            />
-          ))
+          <MessageList
+            messages={messages}
+            onReply={setReplyTo}
+            onOpenMedia={setViewerMedia}
+            onToggleReaction={onToggleReaction}
+            onRespondToFileOffer={onRespondToFileOffer}
+            onConsumeViewOnce={onConsumeViewOnce}
+            currentUser={userName}
+            onLoadOlderHistory={onLoadOlderHistory}
+            hasMoreHistory={!!hasMoreHistory}
+            firstItemIndex={firstItemIndex || 0}
+          />
         )}
-        <div ref={messagesEndRef} />
       </main>
 
       {/* ── Drag overlay ── */}
@@ -330,6 +361,7 @@ export default function ChatWindow({
             className="hidden"
             onChange={handleFileChange}
             accept="*/*"
+            multiple
           />
 
           {/* Text input */}
@@ -373,6 +405,13 @@ export default function ChatWindow({
           SHIFT+ENTER = NEW LINE · ENTER = SEND · DRAG &amp; DROP FILES
           {viewOnce && <span className="ml-2 text-brut-pink">· VIEW ONCE ACTIVE</span>}
         </p>
+        {pendingQueueCount > 0 && (
+          <div className="mt-1.5 flex justify-center">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full border border-brut-black/20 dark:border-mid-border bg-brut-yellow/60 dark:bg-mid-surface text-[10px] font-black uppercase tracking-wider">
+              Queue: {pendingQueueCount} file{pendingQueueCount === 1 ? "" : "s"}
+            </span>
+          </div>
+        )}
         {/* Mobile: view-once indicator only */}
         {viewOnce && (
           <p className="sm:hidden text-[10px] font-mono font-black uppercase tracking-widest

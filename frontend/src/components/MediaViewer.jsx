@@ -42,10 +42,22 @@ export default function MediaViewer({ media, onClose }) {
 
   // ── Close on Escape ───────────────────────────────────────────────────────
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (
+        viewOnce &&
+        (e.ctrlKey || e.metaKey) &&
+        (e.key.toLowerCase() === "s" || e.key.toLowerCase() === "p")
+      ) {
+        e.preventDefault();
+      }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, viewOnce]);
 
   // ── Prevent body scroll while open ───────────────────────────────────────
   useEffect(() => {
@@ -273,6 +285,7 @@ export default function MediaViewer({ media, onClose }) {
             src={url}
             alt={fileName}
             draggable={false}
+            onContextMenu={viewOnce ? (e) => e.preventDefault() : undefined}
             onMouseDown={handleMouseDown}
             onDoubleClick={handleDblClick}
             onTouchStart={handleTouchTap}
@@ -296,6 +309,7 @@ export default function MediaViewer({ media, onClose }) {
             autoPlay
             controlsList="nodownload nofullscreen"
             disablePictureInPicture
+            onContextMenu={viewOnce ? (e) => e.preventDefault() : undefined}
             style={{ maxWidth: "90vw", maxHeight: "80vh", outline: "none" }}
           />
         )}

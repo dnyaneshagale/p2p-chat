@@ -7,10 +7,12 @@
     "@capacitor/android": "^8.1.0",
     "@capacitor/cli": "^8.1.0",
     "@capacitor/core": "^8.1.0",
+    "emoji-picker-react": "^4.18.0",
     "lucide-react": "^0.577.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1"
+    "react-scripts": "5.0.1",
+    "react-virtuoso": "^4.18.3"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.18",

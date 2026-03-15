@@ -1,5 +1,20 @@
-﻿import React, { useState, useCallback, useRef } from "react";
-import { Eye, Lock, Maximize2, Play, Music2, Paperclip, Download, CornerUpLeft } from "lucide-react";
+﻿import React, { useState, useCallback, useEffect, useRef } from "react";
+import { Eye, CornerUpLeft, SmilePlus, X, Download, FileImage, FileVideo, Music2, FileText } from "lucide-react";
+import EmojiPicker from "emoji-picker-react";
+import { useSwipeReply } from "../hooks/useSwipeReply";
+import { QUICK_REACTIONS, RECENT_REACTIONS_KEY } from "../constants/reactionEmojis";
+import { formatBytes } from "../utils/formatBytes";
+import MessageReplyPreview from "./message/MessageReplyPreview";
+import MessageAttachment from "./message/MessageAttachment";
+import MessageTransferProgress from "./message/MessageTransferProgress";
+import MessageMeta from "./message/MessageMeta";
+import MessageHeader from "./message/MessageHeader";
+import MessageText from "./message/MessageText";
+import MessageReactions from "./message/MessageReactions";
+
+/**
+ * @typedef {import("../types/message").ChatMessage} ChatMessage
+ */
 
 /**
  * MessageBubble — WhatsApp-inspired bubbles with swipe-to-reply.
@@ -11,69 +26,142 @@ import { Eye, Lock, Maximize2, Play, Music2, Paperclip, Download, CornerUpLeft }
  *   - Works for both self and peer bubbles (swipe right, WhatsApp standard).
  */
 
-const REPLY_THRESHOLD = 64;
-const MAX_DRAG = 80;
-
-export default function MessageBubble({ message, onReply, onOpenMedia }) {
+/**
+ * @param {{
+ *   message: ChatMessage,
+ *   onReply: (message: ChatMessage) => void,
+ *   onOpenMedia: (media: any) => void,
+ *   onToggleReaction: (messageId: number|string, emoji: string) => void,
+ *   onRespondToFileOffer: (messageId: number|string, accept: boolean) => void,
+ *   onConsumeViewOnce: (messageId: number|string) => void,
+ *   currentUser: string,
+ * }} props
+ */
+export default function MessageBubble({ message, onReply, onOpenMedia, onToggleReaction, onRespondToFileOffer, onConsumeViewOnce, currentUser }) {
   const { isSelf, from, text, fileUrl: initialFileUrl, fileName, fileType,
-          replyTo, timestamp, isSystem, viewOnce } = message;
+  replyTo, timestamp, isSystem, viewOnce, viewOnceConsumed, transfer, reactions } = message;
+  const hasReactions = Array.isArray(reactions) && reactions.length > 0;
 
-  const [voState, setVoState] = useState("locked");
   const [liveUrl, setLiveUrl] = useState(initialFileUrl ?? null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [activePickerTab, setActivePickerTab] = useState("quick"); // recent | quick | all
+  const [recentReactions, setRecentReactions] = useState([]);
+  const [pickerPos, setPickerPos] = useState({ left: 0, top: 0, mobile: false });
+  const pickerRef = useRef(null);
+  const longPressTimerRef = useRef(null);
 
-  const [dragX,    setDragX]    = useState(0);
-  const [dragging, setDragging] = useState(false);
-  const dragStart  = useRef(null);
-  const threshHit  = useRef(false);
+  const {
+    dragX,
+    dragging,
+    threshold,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onPointerCancel,
+  } = useSwipeReply(onReply, message);
 
   const handleDone = useCallback(() => {
     if (liveUrl) {
       URL.revokeObjectURL(liveUrl);
       setLiveUrl(null);
     }
-    setVoState("expired");
-  }, [liveUrl]);
+    onConsumeViewOnce?.(message.id);
+  }, [liveUrl, message.id, onConsumeViewOnce]);
 
-  const timeStr = timestamp
-    ? new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : "";
+  const voState = viewOnceConsumed ? "expired" : "locked";
 
-  const onPointerDown = useCallback((e) => {
-    if (e.button !== undefined && e.button !== 0) return;
-    // Don't hijack clicks on interactive elements inside the bubble (buttons, links)
-    if (e.target.closest("button, a")) return;
-    dragStart.current = { clientX: e.clientX };
-    threshHit.current = false;
-    setDragging(true);
-    e.currentTarget.setPointerCapture(e.pointerId);
-  }, []);
-
-  const onPointerMove = useCallback((e) => {
-    if (!dragStart.current) return;
-    const dx = Math.max(0, Math.min(e.clientX - dragStart.current.clientX, MAX_DRAG));
-    setDragX(dx);
-    if (dx >= REPLY_THRESHOLD && !threshHit.current) {
-      threshHit.current = true;
-      if (navigator.vibrate) navigator.vibrate(30);
+  // Sync local URL state when message fileUrl arrives later (e.g., receiver side
+  // after file-transfer-complete updates the message object).
+  useEffect(() => {
+    if (!viewOnceConsumed && initialFileUrl && initialFileUrl !== liveUrl) {
+      setLiveUrl(initialFileUrl);
     }
+  }, [initialFileUrl, liveUrl, viewOnceConsumed]);
+
+  useEffect(() => {
+    if (viewOnceConsumed && liveUrl) {
+      setLiveUrl(null);
+    }
+  }, [viewOnceConsumed, liveUrl]);
+
+  const closePicker = useCallback(() => {
+    setPickerOpen(false);
+    setActivePickerTab("quick");
   }, []);
 
-  const onPointerUp = useCallback(() => {
-    if (!dragStart.current) return;
-    const fired = threshHit.current;
-    dragStart.current = null;
-    threshHit.current = false;
-    setDragging(false);
-    setDragX(0);
-    if (fired) onReply?.(message);
-  }, [message, onReply]);
-
-  const onPointerCancel = useCallback(() => {
-    dragStart.current = null;
-    threshHit.current = false;
-    setDragging(false);
-    setDragX(0);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RECENT_REACTIONS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) setRecentReactions(parsed.filter((x) => typeof x === "string").slice(0, 12));
+    } catch (_) {}
   }, []);
+
+  const pushRecentReaction = useCallback((emoji) => {
+    setRecentReactions((prev) => {
+      const next = [emoji, ...prev.filter((x) => x !== emoji)].slice(0, 12);
+      try { localStorage.setItem(RECENT_REACTIONS_KEY, JSON.stringify(next)); } catch (_) {}
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDocDown = (e) => {
+      if (!pickerRef.current?.contains(e.target)) closePicker();
+    };
+    const onEsc = (e) => {
+      if (e.key === "Escape") closePicker();
+    };
+    window.addEventListener("pointerdown", onDocDown);
+    window.addEventListener("keydown", onEsc);
+    return () => {
+      window.removeEventListener("pointerdown", onDocDown);
+      window.removeEventListener("keydown", onEsc);
+    };
+  }, [pickerOpen, closePicker]);
+
+  const openPickerAt = useCallback((x, y) => {
+    const isMobile = window.innerWidth < 640;
+    if (isMobile) {
+      setPickerPos({ left: 8, top: window.innerHeight - 420, mobile: true });
+    } else {
+      const menuW = 352;
+      const menuH = 420;
+      const left = Math.max(8, Math.min(window.innerWidth - menuW - 8, x - (menuW / 2)));
+      const top = Math.max(8, Math.min(window.innerHeight - menuH - 8, y - menuH - 10));
+      setPickerPos({ left, top, mobile: false });
+    }
+    setActivePickerTab(recentReactions.length > 0 ? "recent" : "quick");
+    setPickerOpen(true);
+  }, [recentReactions.length]);
+
+  const handleContextMenu = useCallback((e) => {
+    e.preventDefault();
+    openPickerAt(e.clientX, e.clientY);
+  }, [openPickerAt]);
+
+  const armLongPress = useCallback((e) => {
+    clearTimeout(longPressTimerRef.current);
+    const touch = e.touches?.[0];
+    const x = touch?.clientX ?? e.clientX ?? 24;
+    const y = touch?.clientY ?? e.clientY ?? 24;
+    longPressTimerRef.current = setTimeout(() => openPickerAt(x, y), 420);
+  }, [openPickerAt]);
+
+  const cancelLongPress = useCallback(() => {
+    clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  }, []);
+
+  useEffect(() => () => cancelLongPress(), [cancelLongPress]);
+
+  const onPickReaction = useCallback((emoji) => {
+    onToggleReaction?.(message.id, emoji);
+    pushRecentReaction(emoji);
+    closePicker();
+  }, [message.id, onToggleReaction, pushRecentReaction, closePicker]);
 
   if (isSystem) {
     return (
@@ -99,137 +187,27 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
     });
   }, [onOpenMedia, liveUrl, fileName, fileType, from, timestamp, viewOnce]);
 
-  const renderAttachment = () => {
-    const url = liveUrl;
-
-    if (viewOnce && !isSelf && voState === "locked") {
-      return (
-        <button
-          onClick={() => openInViewer(handleDone)}
-          className="mt-2 flex flex-col items-center justify-center gap-2
-                     bg-brut-black text-white rounded-2xl
-                     px-6 py-5 w-full font-black uppercase tracking-widest
-                     active:bg-brut-pink active:scale-[0.98] transition-all duration-100"
-          style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.3)" }}
-        >
-          <Eye size={28} strokeWidth={1.5} />
-          <span className="text-[11px] sm:text-xs">TAP TO VIEW - VIEW ONCE</span>
-          <span className="text-[10px] opacity-50 normal-case tracking-normal font-mono">
-            {fileName} - {fileType}
-          </span>
-        </button>
-      );
-    }
-
-    if (viewOnce && !isSelf && voState === "expired") {
-      return (
-        <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-xl
-                        bg-brut-black/5 dark:bg-white/5 border border-brut-black/15 dark:border-mid-border
-                        font-mono text-xs font-black uppercase tracking-wider opacity-50">
-          <Lock size={13} strokeWidth={2.5} />
-          <span>VIEWED - MEDIA DESTROYED</span>
-        </div>
-      );
-    }
-
-    if (!url) return null;
-
-    if (fileType?.startsWith("image/")) {
-      return (
-        <button
-          onClick={() => openInViewer(viewOnce && !isSelf ? handleDone : null)}
-          className="mt-2 relative block rounded-2xl overflow-hidden hover:opacity-90
-                     transition-opacity focus:outline-none group/img w-full"
-          title="Click to view"
-        >
-          <img
-            src={url}
-            alt={fileName}
-            draggable={false}
-            className="w-full max-w-[240px] sm:max-w-[280px] max-h-[200px] sm:max-h-[220px] object-cover block"
-          />
-          <div className="absolute inset-0 bg-brut-black/0 group-hover/img:bg-brut-black/20
-                          transition-colors flex items-center justify-center pointer-events-none">
-            <span className="opacity-0 group-hover/img:opacity-100 transition-opacity
-                             bg-brut-yellow border-2 border-brut-black rounded-md
-                             font-black text-[10px] text-brut-black uppercase tracking-widest px-2 py-1
-                             flex items-center gap-1">
-              <Maximize2 size={11} strokeWidth={2.5} /> EXPAND
-            </span>
-          </div>
-        </button>
-      );
-    }
-
-    if (fileType?.startsWith("video/")) {
-      return (
-        <button
-          onClick={() => openInViewer(null)}
-          className="mt-2 block relative rounded-2xl overflow-hidden
-                     hover:opacity-90 transition-opacity focus:outline-none"
-          title="Click to play"
-        >
-          <video
-            src={url}
-            className="max-w-[240px] sm:max-w-[280px] max-h-[180px] sm:max-h-[200px] object-cover block pointer-events-none"
-            preload="metadata"
-          />
-          <div className="absolute inset-0 flex items-center justify-center bg-brut-black/30">
-            <div className="bg-brut-yellow border-3 border-brut-black w-12 h-12 rounded-full
-                            flex items-center justify-center"
-                 style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.4)" }}>
-              <Play size={20} strokeWidth={2} className="fill-current text-brut-black ml-0.5" />
-            </div>
-          </div>
-        </button>
-      );
-    }
-
-    if (fileType?.startsWith("audio/")) {
-      return (
-        <div className="mt-2 flex items-center gap-2 p-2.5 rounded-xl
-                        bg-brut-black/5 dark:bg-white/5 border border-brut-black/15 dark:border-mid-border">
-          <Music2 size={18} strokeWidth={2} className="shrink-0 opacity-60" />
-          <audio src={url} controls controlsList="nodownload" className="w-full h-8" />
-        </div>
-      );
-    }
-
-    return (
-      <a
-        href={viewOnce && !isSelf ? undefined : url}
-        download={!viewOnce ? fileName : undefined}
-        onClick={viewOnce && !isSelf ? (e) => e.preventDefault() : undefined}
-        className="flex items-center gap-2.5 mt-2 text-sm font-bold rounded-xl
-                   border border-brut-black/20 dark:border-mid-border px-3 py-2.5
-                   bg-brut-black/5 dark:bg-white/5
-                   hover:bg-brut-yellow dark:hover:bg-mid-surface transition-colors"
-      >
-        <Paperclip size={17} strokeWidth={2} className="shrink-0 opacity-70" />
-        <div className="min-w-0">
-          <p className="truncate max-w-[200px] font-black text-xs uppercase tracking-wide">
-            {fileName}
-          </p>
-          <p className="font-mono text-[10px] opacity-50 mt-0.5">{fileType || "file"}</p>
-        </div>
-        {!viewOnce && <Download size={14} strokeWidth={2} className="ml-auto opacity-40 shrink-0" />}
-      </a>
-    );
-  };
-
   const isMedia = fileType?.startsWith("image/") || fileType?.startsWith("video/");
   const showViewOnceBadge = viewOnce && isSelf && isMedia;
+  const showFileOfferActions = !isSelf && transfer?.state === "offer";
+  const hasMediaAttachment = Boolean(initialFileUrl || liveUrl || (showFileOfferActions && isMedia) || (isMedia && fileName));
+  const mediaBubbleStyle = hasMediaAttachment ? {
+    width: "min(17rem, 100%)",
+    maxWidth: "min(17rem, 100%)",
+  } : undefined;
+  const OfferIcon = fileType?.startsWith("image/") ? FileImage
+    : fileType?.startsWith("video/") ? FileVideo
+    : fileType?.startsWith("audio/") ? Music2
+    : FileText;
+  const offerTypeLabel = fileType?.split("/")[0] || "file";
 
-  const iconOpacity = Math.min(dragX / REPLY_THRESHOLD, 1);
-  const iconScale   = 0.5 + 0.5 * Math.min(dragX / REPLY_THRESHOLD, 1);
+  const iconOpacity = Math.min(dragX / threshold, 1);
+  const iconScale   = 0.5 + 0.5 * Math.min(dragX / threshold, 1);
 
   return (
-    <div className={`flex flex-col mb-1 sm:mb-2 animate-slide-up ${isSelf ? "items-end" : "items-start"}`}>
+    <div className={`flex flex-col ${hasReactions ? "mb-5 sm:mb-6" : "mb-1 sm:mb-2"} animate-slide-up ${isSelf ? "items-end" : "items-start"}`}>
       {/* Sender name */}
-      <span className="text-[10px] font-black uppercase tracking-widest
-                       text-brut-black/40 dark:text-mid-muted mb-0.5 px-1">
-        {isSelf ? "YOU" : (from || "PEER").toUpperCase()}
-      </span>
+      <MessageHeader isSelf={isSelf} from={from} />
 
       {/* Swipe row */}
       <div className={`relative flex items-center w-full ${isSelf ? "justify-end" : "justify-start"}`}>
@@ -253,8 +231,10 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
         {/* Bubble */}
         <div
           className={`group relative cursor-grab active:cursor-grabbing select-none
+                      min-w-[8.25rem] xs:min-w-[9rem]
                       ${isSelf ? "bubble-self" : "bubble-peer"}`}
           style={{
+            ...mediaBubbleStyle,
             transform: `translateX(${dragX}px)`,
             transition: dragging ? "none" : "transform 0.35s cubic-bezier(0.34,1.56,0.64,1)",
             touchAction: "pan-y",
@@ -264,6 +244,11 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerCancel}
+          onContextMenu={handleContextMenu}
+          onTouchStart={armLongPress}
+          onTouchMove={cancelLongPress}
+          onTouchEnd={cancelLongPress}
+          onTouchCancel={cancelLongPress}
         >
           {/* View-once badge */}
           {showViewOnceBadge && (
@@ -277,53 +262,177 @@ export default function MessageBubble({ message, onReply, onOpenMedia }) {
           )}
 
           {/* Reply quote */}
-          {replyTo && (
-            <div className="text-xs px-3 py-1.5 mb-2 rounded-lg font-mono
-                            bg-brut-black/10 dark:bg-white/10 border-l-4 border-brut-black dark:border-mid-border">
-              <span className="font-black uppercase text-[10px]">{replyTo.from}: </span>
-              <span className="opacity-60">{replyTo.text || "Attachment"}</span>
+          <MessageReplyPreview replyTo={replyTo} />
+
+          {/* Text */}
+          <MessageText text={text} />
+
+          {/* Media/file */}
+          <MessageAttachment
+            fileUrl={liveUrl}
+            fileName={fileName}
+            fileType={fileType}
+            isSelf={isSelf}
+            viewOnce={viewOnce}
+            voState={voState}
+            onOpenLocked={() => openInViewer(handleDone)}
+            onOpenMedia={() => openInViewer(viewOnce && !isSelf ? handleDone : null)}
+          />
+          {showFileOfferActions && (
+            <div className="mt-2 rounded-2xl border border-brut-black/20 dark:border-mid-border bg-brut-black/5 dark:bg-white/5 overflow-hidden">
+              <div className="flex items-center gap-2.5 p-2.5">
+                <div className="w-12 h-12 shrink-0 rounded-xl border border-brut-black/20 dark:border-mid-border bg-brut-yellow/45 dark:bg-mid-surface flex items-center justify-center">
+                  <OfferIcon size={18} strokeWidth={2.5} className="text-brut-black/80 dark:text-mid-text/85" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-black uppercase tracking-wider opacity-80 truncate">
+                    {fileName || "Media"}
+                  </p>
+                  <p className="text-[10px] font-mono opacity-65 mt-0.5 uppercase tracking-wide">
+                    {formatBytes(transfer?.totalBytes || 0)} · {offerTypeLabel}
+                  </p>
+                </div>
+                <button
+                  onClick={() => onRespondToFileOffer?.(message.id, true)}
+                  className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-full border border-brut-black/30 dark:border-mid-border bg-white dark:bg-mid-surface text-[10px] font-black uppercase tracking-wider"
+                >
+                  <Download size={12} strokeWidth={2.5} /> Download
+                </button>
+              </div>
+              <div className="px-2.5 pb-2.5 -mt-0.5">
+                <p className="text-[10px] font-mono opacity-60 uppercase tracking-wide">
+                  Tap download to receive this media
+                </p>
+              </div>
+            </div>
+          )}
+          <MessageTransferProgress transfer={transfer} fileName={fileName} isSelf={isSelf} />
+
+          <button
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              openPickerAt(rect.left + rect.width / 2, rect.top - 8);
+            }}
+            className="absolute top-1 right-1 z-10 w-6 h-6 rounded-full border border-brut-black/20 dark:border-mid-border bg-white/95 dark:bg-mid-surface text-brut-black/60 dark:text-mid-text/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            title="Add reaction"
+            aria-label="Add reaction"
+          >
+            <SmilePlus size={12} strokeWidth={2.5} />
+          </button>
+
+          {/* Timestamp + Reply button row — inside bubble */}
+          <MessageMeta
+            isSelf={isSelf}
+            timestamp={timestamp}
+            onReply={onReply}
+            message={message}
+          />
+        </div>
+
+        {/* WhatsApp-style floating reaction tray (outside bubble) */}
+        {hasReactions && (
+          <div className={`absolute -bottom-4 z-20 pointer-events-auto ${isSelf ? "right-2" : "left-2"}`}>
+            <MessageReactions reactions={reactions} currentUser={currentUser} floating />
+          </div>
+        )}
+      </div>
+
+      {pickerOpen && (
+        <div
+          ref={pickerRef}
+          className={`fixed z-[120] w-[352px] max-w-[calc(100vw-16px)] p-2 rounded-2xl border-2 border-brut-black dark:border-mid-border bg-white dark:bg-mid-surface shadow-[0_10px_28px_rgba(0,0,0,0.28)] ${pickerPos.mobile ? "left-2 right-2 bottom-2 top-auto w-auto" : ""}`}
+          style={pickerPos.mobile ? undefined : { left: pickerPos.left, top: pickerPos.top }}
+        >
+          <div className="flex items-center justify-between mb-2 px-1">
+            <p className="text-[11px] font-black uppercase tracking-wider text-brut-black/60 dark:text-mid-muted">
+              React
+            </p>
+            <button
+              onClick={closePicker}
+              className="w-7 h-7 rounded-full border border-brut-black/20 dark:border-mid-border
+                         text-brut-black/70 dark:text-mid-text
+                         hover:bg-brut-gray/40 dark:hover:bg-white/10
+                         hover:text-brut-black dark:hover:text-white
+                         flex items-center justify-center"
+              aria-label="Close reaction picker"
+            >
+              <X size={14} strokeWidth={2.5} />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1 mb-2 px-1">
+            {[
+              { id: "recent", label: "Recent" },
+              { id: "quick", label: "Quick" },
+              { id: "all", label: "All" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActivePickerTab(tab.id)}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                  activePickerTab === tab.id
+                    ? "bg-brut-black text-white border-brut-black dark:bg-mid-text dark:text-mid-bg dark:border-mid-text"
+                    : "border-brut-black/20 dark:border-mid-border text-brut-black/60 dark:text-mid-muted hover:bg-brut-gray/40 dark:hover:bg-white/10"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {activePickerTab === "recent" && (
+            <div className="mb-1 px-1">
+              {recentReactions.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {recentReactions.map((emoji) => (
+                    <button
+                      key={`recent-${emoji}`}
+                      onClick={() => onPickReaction(emoji)}
+                      className="w-9 h-9 rounded-full text-xl hover:bg-brut-gray/60 dark:hover:bg-white/10 active:scale-95 transition-all"
+                      aria-label={`React with ${emoji}`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-brut-black/50 dark:text-mid-muted px-1 py-2">
+                  No recent reactions yet.
+                </p>
+              )}
             </div>
           )}
 
-          {/* Text */}
-          {text && <p className="text-sm font-medium leading-relaxed">{text}</p>}
+          {activePickerTab === "quick" && (
+            <div className="flex flex-wrap gap-1 mb-1 px-1">
+              {QUICK_REACTIONS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => onPickReaction(emoji)}
+                  className="w-9 h-9 rounded-full text-xl hover:bg-brut-gray/60 dark:hover:bg-white/10 active:scale-95 transition-all"
+                  aria-label={`React with ${emoji}`}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
 
-          {/* Media/file */}
-          {renderAttachment()}
-
-          {/* Timestamp + Reply button row — inside bubble */}
-          <div className={`flex items-center gap-2 mt-1.5 ${isSelf ? "justify-end" : "justify-between"}`}>
-            {/* Reply button (left side for peer; right+rotated for self) */}
-            {!isSelf && (
-              <button
-                onClick={() => onReply?.(message)}
-                className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider
-                           text-brut-black/40 dark:text-mid-muted
-                           hover:text-brut-pink dark:hover:text-brut-pink
-                           active:scale-90 transition-all duration-100 -ml-0.5"
-                aria-label="Reply"
-              >
-                <CornerUpLeft size={11} strokeWidth={2.5} /> Reply
-              </button>
-            )}
-            <span className={`font-mono text-[10px] font-bold opacity-35 uppercase select-none ${isSelf ? "" : "ml-auto"}`}>
-              {timeStr}
-            </span>
-            {isSelf && (
-              <button
-                onClick={() => onReply?.(message)}
-                className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider
-                           text-brut-black/40 dark:text-mid-text/40
-                           hover:text-brut-pink dark:hover:text-brut-pink
-                           active:scale-90 transition-all duration-100 -mr-0.5"
-                aria-label="Reply"
-              >
-                Reply <CornerUpLeft size={11} strokeWidth={2.5} className="scale-x-[-1]" />
-              </button>
-            )}
-          </div>
+          {activePickerTab === "all" && (
+            <div className="mt-1 pt-1 border-t border-brut-black/10 dark:border-mid-border">
+              <EmojiPicker
+                onEmojiClick={(data) => onPickReaction(data.emoji)}
+                width="100%"
+                height={300}
+                previewConfig={{ showPreview: false }}
+                skinTonesDisabled={false}
+                lazyLoadEmojis
+                searchPlaceholder="Search emoji"
+              />
+            </div>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
