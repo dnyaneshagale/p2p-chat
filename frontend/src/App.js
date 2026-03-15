@@ -62,6 +62,8 @@ export default function App() {
   const [appStatus, setAppStatus]       = useState("waiting");
   const [isConnecting, setIsConnecting] = useState(false);
   const [joinError, setJoinError]       = useState("");
+  const [isPeerTyping, setIsPeerTyping] = useState(false);
+  const peerTypingTimeoutRef = useRef(null);
 
   const toggleReaction = useCallback((message, emoji, actor) => {
     if (!message) return message;
@@ -163,6 +165,20 @@ export default function App() {
       return;
     }
 
+    if (msg.type === "typing-status") {
+      setIsPeerTyping(!!msg.isTyping);
+      if (peerTypingTimeoutRef.current) clearTimeout(peerTypingTimeoutRef.current);
+      if (msg.isTyping) {
+        peerTypingTimeoutRef.current = setTimeout(() => {
+          setIsPeerTyping(false);
+          peerTypingTimeoutRef.current = null;
+        }, 1800);
+      } else {
+        peerTypingTimeoutRef.current = null;
+      }
+      return;
+    }
+
     if (msg.type === "file-offer") {
       setMessages((prev) => [...prev, {
         id: msg.id,
@@ -235,6 +251,14 @@ export default function App() {
           : m
       )));
       return;
+    }
+
+    if (typeof msg.text === "string") {
+      setIsPeerTyping(false);
+      if (peerTypingTimeoutRef.current) {
+        clearTimeout(peerTypingTimeoutRef.current);
+        peerTypingTimeoutRef.current = null;
+      }
     }
 
     setMessages((prev) => [...prev, msg]);
@@ -329,7 +353,7 @@ export default function App() {
   webrtcRef.current = webrtcActions;
 
   const {
-    sendChatMessage, sendFile, sendReactionToggle, sendFileOfferDecision,
+    sendChatMessage, sendFile, sendReactionToggle, sendFileOfferDecision, sendTypingStatus,
     initiateCall, acceptCall, rejectCall, endCall,
     switchToVideo, toggleMic, toggleCamera,
     localStreamRef, remoteStream, isConnected,
@@ -558,6 +582,14 @@ export default function App() {
     )));
   }, []);
 
+  const handleTypingStatusChange = useCallback((isTyping) => {
+    sendTypingStatus?.(isTyping);
+  }, [sendTypingStatus]);
+
+  useEffect(() => () => {
+    if (peerTypingTimeoutRef.current) clearTimeout(peerTypingTimeoutRef.current);
+  }, []);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   if (!roomId) {
     return <JoinRoom onJoin={handleJoin} isConnecting={isConnecting} joinError={joinError} onClearError={() => setJoinError("")} darkMode={darkMode} onToggleDark={toggleDark} />;
@@ -576,6 +608,7 @@ export default function App() {
         messages={messages}
         onSendMessage={handleSendMessage}
         onSendFile={handleSendFile}
+        onTypingStatusChange={handleTypingStatusChange}
         onToggleReaction={handleToggleReaction}
         onRespondToFileOffer={handleRespondToFileOffer}
         onConsumeViewOnce={handleConsumeViewOnce}
@@ -591,6 +624,7 @@ export default function App() {
         callState={callState}
         callType={callType}
         status={appStatus}
+        isPeerTyping={isPeerTyping}
       />
 
       {/* Incoming call overlay — highest z-index */}

@@ -195,6 +195,7 @@ export default function MessageBubble({ message, onReply, onOpenMedia, onToggleR
     width: "min(17rem, 100%)",
     maxWidth: "min(17rem, 100%)",
   } : undefined;
+  const textBubbleWidthClass = hasMediaAttachment ? "" : "max-w-[78vw] sm:max-w-[64%]";
   const OfferIcon = fileType?.startsWith("image/") ? FileImage
     : fileType?.startsWith("video/") ? FileVideo
     : fileType?.startsWith("audio/") ? Music2
@@ -205,12 +206,12 @@ export default function MessageBubble({ message, onReply, onOpenMedia, onToggleR
   const iconScale   = 0.5 + 0.5 * Math.min(dragX / threshold, 1);
 
   return (
-    <div className={`flex flex-col ${hasReactions ? "mb-5 sm:mb-6" : "mb-1 sm:mb-2"} animate-slide-up ${isSelf ? "items-end" : "items-start"}`}>
+    <div className={`flex flex-col w-full min-w-0 ${hasReactions ? "mb-5 sm:mb-6" : "mb-1 sm:mb-2"} animate-slide-up ${isSelf ? "items-end" : "items-start"}`}>
       {/* Sender name */}
       <MessageHeader isSelf={isSelf} from={from} />
 
       {/* Swipe row */}
-      <div className={`relative flex items-center w-full ${isSelf ? "justify-end" : "justify-start"}`}>
+      <div className={`relative flex items-center w-full min-w-0 ${isSelf ? "justify-end" : "justify-start"}`}>
 
         {/* Reply icon — hidden behind bubble, revealed on swipe */}
         <div
@@ -231,7 +232,7 @@ export default function MessageBubble({ message, onReply, onOpenMedia, onToggleR
         {/* Bubble */}
         <div
           className={`group relative cursor-grab active:cursor-grabbing select-none
-                      min-w-[8.25rem] xs:min-w-[9rem]
+                      w-fit min-w-0 ${textBubbleWidthClass}
                       ${isSelf ? "bubble-self" : "bubble-peer"}`}
           style={{
             ...mediaBubbleStyle,

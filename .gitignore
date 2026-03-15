@@ -86,3 +86,6 @@ frontend/android/local.properties
 .cache/
 dist/
 coverage/
+
+*/.firebaserc
+*/firebase.json

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Phone, Video, PhoneOff, Eye, EyeOff, Paperclip, Send, X, Upload, Zap, LogOut, Sun, Moon } from "lucide-react";
 import MessageList from "./MessageList";
 import MediaViewer from "./MediaViewer";
@@ -26,6 +26,7 @@ import MediaViewer from "./MediaViewer";
  *   @param {ChatMessage[]} messages
  *   @param {function} onSendMessage    - (text, replyTo) => void
  *   @param {function} onSendFile       - (File, viewOnce?) => (void|Promise<void>)
+ *   @param {function} onTypingStatusChange - (isTyping) => void
  *   @param {function} onToggleReaction - (messageId, emoji) => void
  *   @param {function} onRespondToFileOffer - (messageId, accept) => void
  *   @param {function} onConsumeViewOnce - (messageId) => void
@@ -41,6 +42,7 @@ import MediaViewer from "./MediaViewer";
  *   @param {string}   callState        - "idle" | "outgoing-ringing" | ...
  *   @param {string}   callType         - "voice" | "video" | null
  *   @param {string}   status           - "waiting" | "connected" | "peer-left"
+ *   @param {boolean=} isPeerTyping
  */
 export default function ChatWindow({
   userName,
@@ -50,6 +52,7 @@ export default function ChatWindow({
   messages,
   onSendMessage,
   onSendFile,
+  onTypingStatusChange,
   onToggleReaction,
   onRespondToFileOffer,
   onConsumeViewOnce,
@@ -65,6 +68,7 @@ export default function ChatWindow({
   callState,
   callType,
   status,
+  isPeerTyping = false,
 }) {
   const [text, setText]         = useState("");
   const [replyTo, setReplyTo]   = useState(null);
@@ -75,6 +79,8 @@ export default function ChatWindow({
 
   const fileInputRef   = useRef(null);
   const sendQueueRef = useRef(Promise.resolve());
+  const typingTimeoutRef = useRef(null);
+  const lastTypingStateRef = useRef(false);
 
   const queueFilesForSend = useCallback((fileList) => {
     const files = Array.from(fileList || []).filter((f) => !!f);
@@ -103,6 +109,14 @@ export default function ChatWindow({
   const handleSend = () => {
     const trimmed = text.trim();
     if (!trimmed || !isConnected) return;
+    if (lastTypingStateRef.current) {
+      onTypingStatusChange?.(false);
+      lastTypingStateRef.current = false;
+    }
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
     onSendMessage(trimmed, replyTo ? { id: replyTo.id, from: replyTo.from, text: replyTo.text } : null);
     setText("");
     setReplyTo(null);
@@ -131,6 +145,50 @@ export default function ChatWindow({
 
   const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = () => setIsDragging(false);
+
+  useEffect(() => {
+    if (!isConnected) {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+      if (lastTypingStateRef.current) {
+        onTypingStatusChange?.(false);
+        lastTypingStateRef.current = false;
+      }
+      return;
+    }
+
+    const hasText = text.trim().length > 0;
+    if (!hasText) {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+      if (lastTypingStateRef.current) {
+        onTypingStatusChange?.(false);
+        lastTypingStateRef.current = false;
+      }
+      return;
+    }
+
+    if (!lastTypingStateRef.current) {
+      onTypingStatusChange?.(true);
+      lastTypingStateRef.current = true;
+    }
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      onTypingStatusChange?.(false);
+      lastTypingStateRef.current = false;
+      typingTimeoutRef.current = null;
+    }, 1200);
+  }, [isConnected, onTypingStatusChange, text]);
+
+  useEffect(() => () => {
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    if (lastTypingStateRef.current) onTypingStatusChange?.(false);
+  }, [onTypingStatusChange]);
 
   // ── Status config (Neo Brutalist colours) ─────────────────────────────
   const statusConfig = {
@@ -200,10 +258,10 @@ export default function ChatWindow({
             <span className={`status-dot shrink-0 ${s.dot} border-brut-black`} />
             {/* Full text on sm+, short label on mobile */}
             <span className="hidden sm:block text-xs font-black uppercase tracking-wider text-white/70 truncate">
-              {s.text}
+              {isPeerTyping ? `${(peerName || "Peer").toUpperCase()} IS TYPING…` : s.text}
             </span>
             <span className="sm:hidden text-[10px] font-black uppercase tracking-wider text-white/70">
-              {s.label}
+              {isPeerTyping ? "TYPING" : s.label}
             </span>
           </div>
         </div>

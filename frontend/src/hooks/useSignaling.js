@@ -34,17 +34,14 @@ export function useSignaling(signalingUrl, onMessage) {
   const connect = useCallback(() => {
     if (destroyed.current || !signalingUrl) return;
 
-    console.log(`[Signaling] Connecting to ${signalingUrl} …`);
     const ws = new WebSocket(signalingUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log("[Signaling] Connected.");
       retryDelay.current = BACKOFF_BASE_MS; // reset backoff on success
 
       // Re-join the room if we were already in one before the reconnect
       if (pendingJoin.current) {
-        console.log("[Signaling] Re-joining room after reconnect.");
         ws.send(JSON.stringify({ type: "join", roomId: pendingJoin.current }));
       }
     };
@@ -52,7 +49,6 @@ export function useSignaling(signalingUrl, onMessage) {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        console.log("[Signaling] ←", msg.type, msg);
         onMessageRef.current?.(msg);
       } catch (err) {
         console.error("[Signaling] Failed to parse message:", err);
@@ -61,15 +57,12 @@ export function useSignaling(signalingUrl, onMessage) {
 
     ws.onerror = () => {
       // onclose always fires after onerror, so reconnect logic lives there
-      console.warn("[Signaling] WebSocket error — will attempt reconnect.");
     };
 
     ws.onclose = (event) => {
-      console.log(`[Signaling] Closed (code=${event.code}).`);
       if (destroyed.current) return;   // intentional close — do not reconnect
 
       const delay = retryDelay.current;
-      console.log(`[Signaling] Reconnecting in ${delay / 1000}s …`);
       retryTimer.current = setTimeout(() => {
         if (!destroyed.current) connect();
       }, delay);
@@ -99,9 +92,6 @@ export function useSignaling(signalingUrl, onMessage) {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(message));
-      console.log("[Signaling] →", message.type, message);
-    } else {
-      console.warn("[Signaling] Cannot send — not open. State:", ws?.readyState);
     }
   }, []);
 

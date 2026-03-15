@@ -28,7 +28,6 @@ async function fetchIceConfig() {
       const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
       return urls.some((u) => u.startsWith("turn:") || u.startsWith("turns:"));
     });
-    console.log("[ICE] Fetched TURN credentials:", data.iceServers?.length, "servers, hasTURN:", hasTurn);
     return { iceServers: data.iceServers };
   } catch (err) {
     console.warn("[ICE] Failed to fetch TURN credentials, using STUN only:", err.message);
@@ -330,11 +329,6 @@ async function adaptVideoSenderParams(pc) {
       params.encodings[0].maxFramerate = targetFps;
       params.encodings[0].maxBitrate   = targetBitrate;
       sender.setParameters(params).catch(() => {});
-      console.log(
-        `[WebRTC] Video adapt: fps=${targetFps} bitrate=${targetBitrate / 1000}kbps` +
-        ` (cpu="${limitation}" jitter=${(worstJitter * 1000).toFixed(0)}ms` +
-        ` loss=${(worstLoss * 100).toFixed(1)}%)`
-      );
     } catch (_) {}
   }
 }
@@ -1035,6 +1029,16 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
           return;
         }
 
+        if (p.type === "typing-status") {
+          onMessageRef.current?.({
+            type: "typing-status",
+            isTyping: !!p.isTyping,
+            from: p.from ?? "Peer",
+            timestamp: p.timestamp ?? Date.now(),
+          });
+          return;
+        }
+
         if (p.type === "message-ack") {
           onMessageRef.current?.({
             type: "delivery-update",
@@ -1232,6 +1236,18 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
       type: "reaction-toggle",
       messageId,
       emoji,
+      from: userName,
+      timestamp: Date.now(),
+    }));
+    return true;
+  }, [userName]);
+
+  const sendTypingStatus = useCallback((isTyping) => {
+    const dc = dataChannelRef.current;
+    if (!dc || dc.readyState !== "open") return false;
+    dc.send(JSON.stringify({
+      type: "typing-status",
+      isTyping: !!isTyping,
       from: userName,
       timestamp: Date.now(),
     }));
@@ -1523,7 +1539,7 @@ export function useWebRTC(roomId, userName, sendSignal, onMessage) {
   return {
     initiatePeerConnection, handleSignalMessage,
     resetPeerConnection,
-    sendChatMessage, sendFile, sendReactionToggle, sendFileOfferDecision,
+    sendChatMessage, sendFile, sendReactionToggle, sendFileOfferDecision, sendTypingStatus,
     // Call management
     initiateCall, acceptCall, rejectCall, endCall,
     handleCallInvite, handleCallAccepted, handleCallRejected, handleCallEnd,
